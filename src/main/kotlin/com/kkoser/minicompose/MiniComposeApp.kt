@@ -5,18 +5,19 @@ import javax.swing.BorderFactory
 import javax.swing.JFrame
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
+import com.kkoser.minicompose.runtime.Composer
 import com.kkoser.minicompose.runtime.CompositionHostPanel
 import com.kkoser.minicompose.runtime.RootComposition
-import com.kkoser.minicompose.runtime.Composer
 import com.kkoser.minicompose.runtime.mutableStateOf
 import com.kkoser.minicompose.runtime.button
 import com.kkoser.minicompose.runtime.column
+import com.kkoser.minicompose.runtime.remember
 import com.kkoser.minicompose.runtime.row
 import com.kkoser.minicompose.runtime.text
 import com.kkoser.minicompose.ui.UiNode
 
 object MiniComposeApp {
-    private var counterState = mutableStateOf(0)
+    private var rememberedBuildToken = 0
     private var rootComposition = createRootComposition()
 
     @JvmStatic
@@ -45,7 +46,7 @@ object MiniComposeApp {
     fun buildDemoTree(): UiNode = rootComposition.recompose()
 
     internal fun resetDemoStateForTests() {
-        counterState = mutableStateOf(0)
+        rememberedBuildToken = 0
         rootComposition = createRootComposition()
     }
 
@@ -56,7 +57,10 @@ object MiniComposeApp {
     }
 
     private fun Composer.buildCounterScreen() = column {
+        val buildToken = remember { ++rememberedBuildToken }
+        val counterState = remember { mutableStateOf(0) }
         text("MiniCompose")
+        text("Remembered build token: $buildToken")
         text("Count: ${counterState.value}")
         row {
             button("Increment") {

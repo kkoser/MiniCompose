@@ -188,6 +188,7 @@ Purpose:
 Teach how recomposition can avoid re-executing unaffected subtrees.
 
 Planned work:
+- Replace the simplified remember storage with a more Compose-like slot-table structure if scoped recomposition needs it
 - Track invalidation at the scope level
 - Re-execute affected scopes in supported cases
 - Keep full-root recomposition as a safe fallback

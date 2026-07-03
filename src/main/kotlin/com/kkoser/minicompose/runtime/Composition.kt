@@ -2,9 +2,15 @@ package com.kkoser.minicompose.runtime
 
 import com.kkoser.minicompose.ui.UiNode
 
+internal data class ScopeKey(val path: List<Int>) {
+    fun child(index: Int): ScopeKey = ScopeKey(path + index)
+
+    companion object {
+        val root = ScopeKey(emptyList())
+    }
+}
+
 internal object CompositionRuntime {
-    // TODO: Revisit this ambient current-composition mechanism later.
-    // An explicit context may be clearer once the runtime grows.
     private val currentComposition = ThreadLocal<RootComposition?>()
 
     fun <T> withCurrentComposition(composition: RootComposition, block: () -> T): T {
@@ -25,6 +31,10 @@ class RootComposition(
 ) {
     private val observedStates = mutableSetOf<MutableState<*>>()
     private val invalidationListeners = mutableSetOf<() -> Unit>()
+    // TODO: Replace this simplified per-scope map with a more faithful slot table
+    // once the runtime grows into partial/scoped recomposition.
+    private val slotTable = mutableMapOf<ScopeKey, MutableList<Any?>>()
+    private val visitedScopes = mutableSetOf<ScopeKey>()
     private var dirty = true
 
     var latestTree: UiNode? = null
@@ -37,18 +47,39 @@ class RootComposition(
     }
 
     fun recompose(): UiNode {
+        beginPass()
         clearObservedStates()
         val tree = CompositionRuntime.withCurrentComposition(this) {
-            compose(content)
+            compose(this, content)
         }
         latestTree = tree
         dirty = false
+        pruneUnusedScopes()
         return tree
     }
 
     internal fun registerRead(state: MutableState<*>) {
         observedStates.add(state)
         state.addObserver(this)
+    }
+
+    internal fun markScopeVisited(scopeKey: ScopeKey) {
+        visitedScopes.add(scopeKey)
+    }
+
+    internal fun <T> remember(scopeKey: ScopeKey, slotIndex: Int, factory: () -> T): T {
+        val slots = slotTable.getOrPut(scopeKey) { mutableListOf() }
+        if (slotIndex < slots.size) {
+            @Suppress("UNCHECKED_CAST")
+            return slots[slotIndex] as T
+        }
+
+        val value = factory()
+        while (slots.size <= slotIndex) {
+            slots.add(null)
+        }
+        slots[slotIndex] = value
+        return value
     }
 
     internal fun invalidate() {
@@ -65,5 +96,14 @@ class RootComposition(
             state.removeObserver(this)
         }
         observedStates.clear()
+    }
+
+    private fun beginPass() {
+        visitedScopes.clear()
+        markScopeVisited(ScopeKey.root)
+    }
+
+    private fun pruneUnusedScopes() {
+        slotTable.keys.retainAll(visitedScopes)
     }
 }
