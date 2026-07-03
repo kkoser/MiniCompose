@@ -15,11 +15,13 @@ class SwingUiRendererTest {
     @Test
     fun `rendering a button wires the label and click handler`() {
         var clicked = false
+        val events = mutableListOf<String>()
 
         val component = SwingUiRenderer.render(
             UiButton("Press me") {
                 clicked = true
-            }
+            },
+            onEvent = { events.add(it) }
         )
 
         val button = component as javax.swing.JButton
@@ -28,6 +30,7 @@ class SwingUiRendererTest {
         button.doClick()
 
         assertTrue(clicked)
+        assertEquals(listOf("Button click: Press me"), events)
     }
 
     @Test

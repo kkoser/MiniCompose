@@ -31,4 +31,32 @@ class RootCompositionTest {
         assertEquals(UiText("Count: 1"), (updatedTree as UiColumn).children[0])
         assertFalse(composition.isDirty())
     }
+
+    @Test
+    fun `debug snapshot tracks recompositions invalidations and tree dump`() {
+        val count = mutableStateOf(0)
+        val composition = RootComposition {
+            column {
+                text("Count: ${count.value}")
+            }
+        }
+
+        composition.recompose()
+        count.value = 1
+        composition.recompose()
+
+        val snapshot = composition.debugSnapshot()
+
+        assertEquals(2, snapshot.recompositionCount)
+        assertEquals(1, snapshot.invalidationCount)
+        assertEquals(
+            """
+            Column(spacing=0)
+              Text(text="Count: 1")
+            """.trimIndent(),
+            snapshot.lastTreeDump
+        )
+        assertTrue(snapshot.events.any { it == "invalidate #1" })
+        assertTrue(snapshot.events.any { it == "recompose #2" })
+    }
 }

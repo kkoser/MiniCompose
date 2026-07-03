@@ -23,25 +23,27 @@ object MiniComposeApp {
     @JvmStatic
     fun main(args: Array<String>) {
         SwingUtilities.invokeLater {
-            createWindow().isVisible = true
+            createWindow(showDebugInfo = args.any { it == "--debug" || it == "--debug-ui" }).isVisible = true
         }
     }
 
-    fun createWindow(): JFrame {
+    fun createWindow(showDebugInfo: Boolean = false): JFrame {
         return JFrame("MiniCompose").apply {
             defaultCloseOperation = JFrame.EXIT_ON_CLOSE
-            contentPane.add(createContentPanel(), BorderLayout.CENTER)
+            contentPane.add(createContentPanel(showDebugInfo), BorderLayout.CENTER)
             pack()
             setLocationRelativeTo(null)
         }
     }
 
-    fun createContentPanel(): JPanel {
+    fun createContentPanel(showDebugInfo: Boolean = false): JPanel {
         return JPanel(BorderLayout()).apply {
             border = BorderFactory.createEmptyBorder(24, 24, 24, 24)
-            add(CompositionHostPanel(rootComposition), BorderLayout.CENTER)
+            add(CompositionHostPanel(rootComposition, showDebugInfo), BorderLayout.CENTER)
         }
     }
+
+    fun createDebugContentPanel(): JPanel = createContentPanel(showDebugInfo = true)
 
     fun buildDemoTree(): UiNode = rootComposition.recompose()
 

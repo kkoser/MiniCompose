@@ -51,7 +51,8 @@ class MiniComposeAppTest {
         assertEquals(1, panel.componentCount)
 
         val host = panel.getComponent(0) as JPanel
-        val tree = host.getComponent(0) as JPanel
+        val content = host.getComponent(0) as JPanel
+        val tree = content.getComponent(0) as JPanel
         val rememberedLabel = tree.getComponent(1) as JLabel
         val row = tree.getComponent(2) as JPanel
         val leftColumn = row.getComponent(0) as JPanel
@@ -64,7 +65,8 @@ class MiniComposeAppTest {
 
         incrementButton.doClick()
 
-        val updatedTree = host.getComponent(0) as JPanel
+        val updatedContent = host.getComponent(0) as JPanel
+        val updatedTree = updatedContent.getComponent(0) as JPanel
         val updatedRememberedLabel = updatedTree.getComponent(1) as JLabel
         val updatedRow = updatedTree.getComponent(2) as JPanel
         val updatedLeftColumn = updatedRow.getComponent(0) as JPanel

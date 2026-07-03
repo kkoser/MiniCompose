@@ -1,6 +1,7 @@
 package com.kkoser.minicompose.runtime
 
 import com.kkoser.minicompose.ui.UiNode
+import com.kkoser.minicompose.ui.dumpTree
 
 internal data class ScopeKey(val path: List<Int>) {
     fun child(index: Int): ScopeKey = ScopeKey(path + index)
@@ -35,6 +36,10 @@ class RootComposition(
     // once the runtime grows into partial/scoped recomposition.
     private val slotTable = mutableMapOf<ScopeKey, MutableList<Any?>>()
     private val visitedScopes = mutableSetOf<ScopeKey>()
+    private val debugEvents = mutableListOf<String>()
+    private var recompositionCount = 0
+    private var invalidationCount = 0
+    private var lastTreeDump = ""
     private var dirty = true
 
     var latestTree: UiNode? = null
@@ -53,9 +58,22 @@ class RootComposition(
             compose(this, content)
         }
         latestTree = tree
+        recompositionCount += 1
+        lastTreeDump = tree.dumpTree()
+        debugEvents.add("recompose #$recompositionCount")
+        debugEvents.add(lastTreeDump)
         dirty = false
         pruneUnusedScopes()
         return tree
+    }
+
+    fun debugSnapshot(): CompositionDebugSnapshot {
+        return CompositionDebugSnapshot(
+            recompositionCount = recompositionCount,
+            invalidationCount = invalidationCount,
+            lastTreeDump = lastTreeDump,
+            events = debugEvents.toList()
+        )
     }
 
     internal fun registerRead(state: MutableState<*>) {
@@ -88,7 +106,13 @@ class RootComposition(
         }
 
         dirty = true
+        invalidationCount += 1
+        debugEvents.add("invalidate #$invalidationCount")
         invalidationListeners.forEach { listener -> listener() }
+    }
+
+    internal fun recordUiEvent(message: String) {
+        debugEvents.add(message)
     }
 
     private fun clearObservedStates() {
