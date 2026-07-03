@@ -5,15 +5,20 @@ import javax.swing.BorderFactory
 import javax.swing.JFrame
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
-import com.kkoser.minicompose.ui.SwingUiRenderer
+import com.kkoser.minicompose.runtime.CompositionHostPanel
+import com.kkoser.minicompose.runtime.RootComposition
+import com.kkoser.minicompose.runtime.Composer
+import com.kkoser.minicompose.runtime.mutableStateOf
 import com.kkoser.minicompose.runtime.button
 import com.kkoser.minicompose.runtime.column
-import com.kkoser.minicompose.runtime.compose
 import com.kkoser.minicompose.runtime.row
 import com.kkoser.minicompose.runtime.text
 import com.kkoser.minicompose.ui.UiNode
 
 object MiniComposeApp {
+    private var counterState = mutableStateOf(0)
+    private var rootComposition = createRootComposition()
+
     @JvmStatic
     fun main(args: Array<String>) {
         SwingUtilities.invokeLater {
@@ -33,18 +38,31 @@ object MiniComposeApp {
     fun createContentPanel(): JPanel {
         return JPanel(BorderLayout()).apply {
             border = BorderFactory.createEmptyBorder(24, 24, 24, 24)
-            add(SwingUiRenderer.render(buildDemoTree()), BorderLayout.CENTER)
+            add(CompositionHostPanel(rootComposition), BorderLayout.CENTER)
         }
     }
 
-    fun buildDemoTree(): UiNode = compose {
-        column {
-            text("MiniCompose")
-            text("Step 2: composer-built node tree")
-            row {
-                button("Run sample") { }
-                text("Rendered through Composer")
+    fun buildDemoTree(): UiNode = rootComposition.recompose()
+
+    internal fun resetDemoStateForTests() {
+        counterState = mutableStateOf(0)
+        rootComposition = createRootComposition()
+    }
+
+    private fun createRootComposition(): RootComposition {
+        return RootComposition {
+            buildCounterScreen()
+        }
+    }
+
+    private fun Composer.buildCounterScreen() = column {
+        text("MiniCompose")
+        text("Count: ${counterState.value}")
+        row {
+            button("Increment") {
+                counterState.value += 1
             }
+            text("Rendered through Composer")
         }
     }
 }
