@@ -188,13 +188,51 @@ Purpose:
 Teach how recomposition can avoid re-executing unaffected subtrees.
 
 Planned work:
-- Replace the simplified remember storage with a more Compose-like slot-table structure if scoped recomposition needs it
 - Track invalidation at the scope level
 - Re-execute affected scopes in supported cases
 - Keep full-root recomposition as a safe fallback
+- Add instrumentation that makes reused versus recomposed scopes visible
+- Add demos and tests that prove unaffected sibling scopes are skipped
 
 Deliverable:
 - Demos showing common cases where unaffected sibling scopes are skipped
+
+Why this is separate:
+- It teaches scoped recomposition before introducing more invasive storage changes
+- It keeps the first partial-recomposition implementation focused on scheduling and reuse behavior
+
+### Phase 8: Slot Table and Structural Reuse
+Purpose:
+Revisit storage and tree reuse only after scoped recomposition has shown its needs.
+
+Planned work:
+- Replace the simplified remember storage with a more Compose-like slot-table structure
+- Preserve reuse across more structural cases where path-based storage becomes limiting
+- Tighten the rules for cache reuse when scope structure changes
+
+Deliverable:
+- A runtime storage model that supports the scoped recomposition rules without overfitting the first implementation
+
+Why this is separate:
+- The slot-table rewrite is larger and easier to understand after scoped recomposition already works
+- It avoids coupling the first scoped recomposition milestone to a storage redesign
+
+### Phase 9: Parallel Composition Exploration
+Purpose:
+Explore whether independent parts of the tree can be composed concurrently without obscuring the runtime model.
+
+Planned work:
+- Identify safe boundaries for parallel execution of independent scopes
+- Experiment with scheduling scope recomposition work across threads or tasks
+- Keep deterministic behavior and the existing fallback path intact
+- Measure whether the added complexity is justified for this learning project
+
+Deliverable:
+- A documented experiment showing which parts of the runtime can or cannot benefit from parallel composition
+
+Why this is separate:
+- Parallel composition is a runtime experiment, not a prerequisite for scoped recomposition
+- It is easier to reason about after the scope model and reuse rules are already in place
 
 ## Suggested Package Organization
 - `runtime`
@@ -216,6 +254,8 @@ Deliverable:
 - Verify `remember` preserves values across recomposition when scope order is stable
 - Verify button clicks trigger state changes and rerendering
 - Verify scoped recomposition skips unaffected siblings in supported cases
+- Verify slot-table reuse still preserves remembered values in stable scopes
+- Verify any parallel composition experiment preserves correctness and fallback behavior
 
 ## Definition of Success
 The project is successful if it becomes easy to explain and inspect:
