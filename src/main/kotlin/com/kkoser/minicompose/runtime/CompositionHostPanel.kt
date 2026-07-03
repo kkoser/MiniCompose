@@ -68,6 +68,12 @@ class CompositionHostPanel(
         debugDump.text = buildString {
             appendLine("Tree")
             appendLine(snapshot.lastTreeDump)
+            appendLine()
+            appendLine("Scopes")
+            appendLine(if (snapshot.scopeDump.isEmpty()) "<none>" else snapshot.scopeDump)
+            appendLine()
+            appendLine("Dependencies")
+            appendLine(if (snapshot.dependencyDump.isEmpty()) "<none>" else snapshot.dependencyDump)
             if (snapshot.events.isNotEmpty()) {
                 appendLine()
                 appendLine("Events")

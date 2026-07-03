@@ -21,7 +21,6 @@ class Composer(
 
     init {
         frameStack.addLast(Frame(ScopeKey.root))
-        rootComposition?.markScopeVisited(ScopeKey.root)
     }
 
     private fun currentFrame(): Frame = frameStack.last()
@@ -47,12 +46,14 @@ class Composer(
         val childIndex = parentFrame.nextChildIndex
         parentFrame.nextChildIndex += 1
         val scopeKey = parentFrame.scopeKey.child(childIndex)
-        rootComposition?.markScopeVisited(scopeKey)
+        rootComposition?.enterScope(scopeKey, parentFrame.scopeKey, childIndex)
 
         frameStack.addLast(Frame(scopeKey))
         var children: List<UiNode>? = null
         try {
-            content()
+            CompositionRuntime.withCurrentScope(scopeKey) {
+                content()
+            }
             children = currentFrame().children.toList()
         } finally {
             frameStack.removeLast()
