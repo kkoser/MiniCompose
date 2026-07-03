@@ -81,8 +81,14 @@ fun Composer.text(text: String): UiText = emit(UiText(text))
 
 fun Composer.button(text: String, onClick: () -> Unit): UiButton = emit(UiButton(text, onClick))
 
-fun Composer.column(content: Composer.() -> Unit): UiColumn = emitContainer(::UiColumn, content)
+fun Composer.column(
+    spacing: Int = 0,
+    content: Composer.() -> Unit
+): UiColumn = emitContainer({ children -> UiColumn(children, spacing) }, content)
 
-fun Composer.row(content: Composer.() -> Unit): UiRow = emitContainer(::UiRow, content)
+fun Composer.row(
+    spacing: Int = 0,
+    content: Composer.() -> Unit
+): UiRow = emitContainer({ children -> UiRow(children, spacing) }, content)
 
 fun <T> Composer.remember(factory: () -> T): T = rememberValue(factory)

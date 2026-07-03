@@ -12,9 +12,19 @@ data class UiButton(
 ) : UiNode
 
 data class UiColumn(
-    val children: List<UiNode>
-) : UiNode
+    val children: List<UiNode>,
+    val spacing: Int = 0
+) : UiNode {
+    init {
+        require(spacing >= 0) { "spacing must be non-negative" }
+    }
+}
 
 data class UiRow(
-    val children: List<UiNode>
-) : UiNode
+    val children: List<UiNode>,
+    val spacing: Int = 0
+) : UiNode {
+    init {
+        require(spacing >= 0) { "spacing must be non-negative" }
+    }
+}

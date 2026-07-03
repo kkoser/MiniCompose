@@ -37,7 +37,8 @@ class SwingUiRendererTest {
                 listOf(
                     UiText("One"),
                     UiText("Two")
-                )
+                ),
+                spacing = 0
             )
         )
 
@@ -54,7 +55,8 @@ class SwingUiRendererTest {
                 listOf(
                     UiText("Left"),
                     UiText("Right")
-                )
+                ),
+                spacing = 0
             )
         )
 
@@ -62,5 +64,43 @@ class SwingUiRendererTest {
         assertEquals(2, panel.componentCount)
         assertEquals("Left", (panel.getComponent(0) as javax.swing.JLabel).text)
         assertEquals("Right", (panel.getComponent(1) as javax.swing.JLabel).text)
+    }
+
+    @Test
+    fun `rendering a column inserts vertical spacing between children`() {
+        val component = SwingUiRenderer.render(
+            UiColumn(
+                listOf(
+                    UiText("One"),
+                    UiText("Two")
+                ),
+                spacing = 10
+            )
+        )
+
+        val panel = component as javax.swing.JPanel
+        assertEquals(3, panel.componentCount)
+        assertEquals("One", (panel.getComponent(0) as javax.swing.JLabel).text)
+        assertEquals(10, panel.getComponent(1).preferredSize.height)
+        assertEquals("Two", (panel.getComponent(2) as javax.swing.JLabel).text)
+    }
+
+    @Test
+    fun `rendering a row inserts horizontal spacing between children`() {
+        val component = SwingUiRenderer.render(
+            UiRow(
+                listOf(
+                    UiText("Left"),
+                    UiText("Right")
+                ),
+                spacing = 8
+            )
+        )
+
+        val panel = component as javax.swing.JPanel
+        assertEquals(3, panel.componentCount)
+        assertEquals("Left", (panel.getComponent(0) as javax.swing.JLabel).text)
+        assertEquals(8, panel.getComponent(1).preferredSize.width)
+        assertEquals("Right", (panel.getComponent(2) as javax.swing.JLabel).text)
     }
 }

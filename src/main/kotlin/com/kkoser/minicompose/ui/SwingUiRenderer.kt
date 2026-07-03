@@ -1,7 +1,9 @@
 package com.kkoser.minicompose.ui
 
 import java.awt.Component
+import java.awt.Dimension
 import javax.swing.BoxLayout
+import javax.swing.Box
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
@@ -12,8 +14,8 @@ object SwingUiRenderer {
         return when (node) {
             is UiText -> renderText(node)
             is UiButton -> renderButton(node)
-            is UiColumn -> renderStack(node.children, BoxLayout.Y_AXIS)
-            is UiRow -> renderStack(node.children, BoxLayout.X_AXIS)
+            is UiColumn -> renderStack(node.children, BoxLayout.Y_AXIS, node.spacing)
+            is UiRow -> renderStack(node.children, BoxLayout.X_AXIS, node.spacing)
         }
     }
 
@@ -30,12 +32,23 @@ object SwingUiRenderer {
         }
     }
 
-    private fun renderStack(children: List<UiNode>, axis: Int): JPanel {
+    private fun renderStack(children: List<UiNode>, axis: Int, spacing: Int): JPanel {
         return JPanel().apply {
             layout = BoxLayout(this, axis)
             alignmentX = Component.LEFT_ALIGNMENT
-            children.forEach { child ->
+            children.forEachIndexed { index, child ->
                 add(render(child))
+                if (index < children.lastIndex && spacing > 0) {
+                    add(
+                        Box.createRigidArea(
+                            if (axis == BoxLayout.Y_AXIS) {
+                                Dimension(0, spacing)
+                            } else {
+                                Dimension(spacing, 0)
+                            }
+                        )
+                    )
+                }
             }
         }
     }

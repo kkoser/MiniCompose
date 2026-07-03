@@ -61,12 +61,17 @@ object MiniComposeApp {
         val counterState = remember { mutableStateOf(0) }
         text("MiniCompose")
         text("Remembered build token: $buildToken")
-        text("Count: ${counterState.value}")
-        row {
-            button("Increment") {
-                counterState.value += 1
+        row(spacing = 12) {
+            column(spacing = 6) {
+                text("Count: ${counterState.value}")
+                text("Rendered through Composer")
             }
-            text("Rendered through Composer")
+            column(spacing = 8) {
+                button("Increment") {
+                    counterState.value += 1
+                }
+                text("Nested layouts")
+            }
         }
     }
 }

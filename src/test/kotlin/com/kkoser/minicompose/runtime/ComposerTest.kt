@@ -36,6 +36,25 @@ class ComposerTest {
     }
 
     @Test
+    fun `compose carries explicit spacing on layout containers`() {
+        val tree = compose {
+            column(spacing = 12) {
+                text("One")
+                row(spacing = 4) {
+                    text("Left")
+                    text("Right")
+                }
+            }
+        }
+
+        val column = assertInstanceOf(UiColumn::class.java, tree)
+        assertEquals(12, column.spacing)
+
+        val row = assertInstanceOf(UiRow::class.java, column.children[1])
+        assertEquals(4, row.spacing)
+    }
+
+    @Test
     fun `compose preserves button callbacks inside the built tree`() {
         var clicked = false
 
