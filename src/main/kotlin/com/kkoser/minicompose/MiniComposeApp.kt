@@ -6,10 +6,12 @@ import javax.swing.JFrame
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import com.kkoser.minicompose.ui.SwingUiRenderer
-import com.kkoser.minicompose.ui.UiButton
-import com.kkoser.minicompose.ui.UiColumn
-import com.kkoser.minicompose.ui.UiRow
-import com.kkoser.minicompose.ui.UiText
+import com.kkoser.minicompose.runtime.button
+import com.kkoser.minicompose.runtime.column
+import com.kkoser.minicompose.runtime.compose
+import com.kkoser.minicompose.runtime.row
+import com.kkoser.minicompose.runtime.text
+import com.kkoser.minicompose.ui.UiNode
 
 object MiniComposeApp {
     @JvmStatic
@@ -35,16 +37,14 @@ object MiniComposeApp {
         }
     }
 
-    fun buildDemoTree() = UiColumn(
-        listOf(
-            UiText("MiniCompose"),
-            UiText("Step 1: manual node tree"),
-            UiRow(
-                listOf(
-                    UiButton("Run sample") { },
-                    UiText("Rendered directly from UiNode")
-                )
-            )
-        )
-    )
+    fun buildDemoTree(): UiNode = compose {
+        column {
+            text("MiniCompose")
+            text("Step 2: composer-built node tree")
+            row {
+                button("Run sample") { }
+                text("Rendered through Composer")
+            }
+        }
+    }
 }

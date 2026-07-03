@@ -17,13 +17,13 @@ class MiniComposeAppTest {
         val column = assertInstanceOf(UiColumn::class.java, tree)
         assertEquals(3, column.children.size)
         assertEquals(UiText("MiniCompose"), column.children[0])
-        assertEquals(UiText("Step 1: manual node tree"), column.children[1])
+        assertEquals(UiText("Step 2: composer-built node tree"), column.children[1])
 
         assertTrue(column.children[2] is UiRow)
         val row = column.children[2] as UiRow
         assertEquals(2, row.children.size)
         assertTrue(row.children[0] is UiButton)
-        assertEquals(UiText("Rendered directly from UiNode"), row.children[1])
+        assertEquals(UiText("Rendered through Composer"), row.children[1])
     }
 
     @Test
