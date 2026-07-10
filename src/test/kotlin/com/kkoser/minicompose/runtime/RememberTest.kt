@@ -38,16 +38,17 @@ class RememberTest {
 
     @Test
     fun `remember keeps independent values in nested scopes`() {
+        val version = mutableStateOf(0)
         var outerFactoryCalls = 0
         var innerFactoryCalls = 0
         var firstOuterValue: Any? = null
         var secondOuterValue: Any? = null
         var firstInnerValue: Any? = null
         var secondInnerValue: Any? = null
-        var pass = 0
 
         val composition = RootComposition {
             column {
+                text("Version: ${version.value}")
                 val outer = remember {
                     outerFactoryCalls += 1
                     Any()
@@ -57,7 +58,7 @@ class RememberTest {
                         innerFactoryCalls += 1
                         Any()
                     }
-                    if (pass == 0) {
+                    if (version.value == 0) {
                         firstOuterValue = outer
                         firstInnerValue = inner
                     } else {
@@ -70,7 +71,7 @@ class RememberTest {
         }
 
         composition.recompose()
-        pass = 1
+        version.value = 1
         composition.recompose()
 
         assertEquals(1, outerFactoryCalls)

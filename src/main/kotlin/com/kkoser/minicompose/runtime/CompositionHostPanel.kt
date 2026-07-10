@@ -74,6 +74,9 @@ class CompositionHostPanel(
             appendLine()
             appendLine("Dependencies")
             appendLine(if (snapshot.dependencyDump.isEmpty()) "<none>" else snapshot.dependencyDump)
+            appendLine()
+            appendLine("Dirty scopes")
+            appendLine(if (snapshot.dirtyScopeDump.isEmpty()) "<none>" else snapshot.dirtyScopeDump)
             if (snapshot.events.isNotEmpty()) {
                 appendLine()
                 appendLine("Events")

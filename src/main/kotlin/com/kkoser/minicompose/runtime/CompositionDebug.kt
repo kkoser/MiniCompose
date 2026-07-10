@@ -6,6 +6,7 @@ data class CompositionDebugSnapshot(
     val lastTreeDump: String,
     val scopeDump: String,
     val dependencyDump: String,
+    val dirtyScopeDump: String,
     val events: List<String>
 )
 

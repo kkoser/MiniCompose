@@ -16,7 +16,7 @@ class MutableState<T>(initialValue: T) {
 
             backingValue = newValue
             observers.toList().forEach { observer ->
-                observer.invalidate()
+                observer.invalidate(this)
             }
         }
 

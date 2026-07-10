@@ -234,6 +234,23 @@ Why this is separate:
 - Parallel composition is a runtime experiment, not a prerequisite for scoped recomposition
 - It is easier to reason about after the scope model and reuse rules are already in place
 
+### Phase 10: Compiler Plugin and Compose Parity
+Purpose:
+Move beyond the explicit teaching API and explore how a compiler plugin changes the runtime model and bring the behavior closer to real Compose in a controlled major step.
+
+Planned work:
+- Introduce a Kotlin compiler-plugin or codegen-based experiment for `@Composable`-style callsites
+- Model restartable and skippable groups more explicitly
+- Revisit `remember`, keys, and scope identity to match Compose behavior more closely
+- Compare the explicit runtime behavior with Compose semantics to highlight what changes and why
+
+Deliverable:
+- A prototype that shows how a compiler plugin changes callsite lowering and recomposition behavior compared with the explicit runtime version
+
+Why this is separate:
+- It is a major conceptual step beyond the teaching runtime
+- The explicit runtime model should be understood first so the plugin’s effect is obvious and educational
+
 ## Suggested Package Organization
 - `runtime`
   - composer/composition lifecycle

@@ -13,6 +13,7 @@ class Composer(
     private data class Frame(
         val scopeKey: ScopeKey,
         val children: MutableList<UiNode> = mutableListOf(),
+        val childScopeKeys: MutableList<ScopeKey> = mutableListOf(),
         var nextChildIndex: Int = 0,
         var nextSlotIndex: Int = 0
     )
@@ -46,21 +47,35 @@ class Composer(
         val childIndex = parentFrame.nextChildIndex
         parentFrame.nextChildIndex += 1
         val scopeKey = parentFrame.scopeKey.child(childIndex)
+        val reusableNode = rootComposition?.shouldReuseScope(scopeKey)
+        if (reusableNode != null) {
+            rootComposition?.enterScope(scopeKey, parentFrame.scopeKey, childIndex)
+            @Suppress("UNCHECKED_CAST")
+            val reused = reusableNode as T
+            parentFrame.children.add(reusableNode)
+            parentFrame.childScopeKeys.add(scopeKey)
+            return reused
+        }
+
         rootComposition?.enterScope(scopeKey, parentFrame.scopeKey, childIndex)
 
         frameStack.addLast(Frame(scopeKey))
         var children: List<UiNode>? = null
+        var childScopeKeys: List<ScopeKey> = emptyList()
         try {
             CompositionRuntime.withCurrentScope(scopeKey) {
                 content()
             }
             children = currentFrame().children.toList()
+            childScopeKeys = currentFrame().childScopeKeys.toList()
         } finally {
             frameStack.removeLast()
         }
 
         val node = factory(requireNotNull(children))
+        rootComposition?.finishScope(scopeKey, node, childScopeKeys)
         currentFrame().children.add(node)
+        currentFrame().childScopeKeys.add(scopeKey)
         return node
     }
 

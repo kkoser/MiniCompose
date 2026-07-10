@@ -19,7 +19,9 @@ internal data class ScopeRecord(
     var parentScopeKey: ScopeKey?,
     var childIndex: Int?,
     var visited: Boolean = false,
-    val readStates: MutableSet<MutableState<*>> = linkedSetOf()
+    val readStates: MutableSet<MutableState<*>> = linkedSetOf(),
+    var childScopeKeys: List<ScopeKey> = emptyList(),
+    var cachedNode: UiNode? = null
 )
 
 internal object CompositionRuntime {
@@ -54,7 +56,6 @@ internal object CompositionRuntime {
 class RootComposition(
     private val content: Composer.() -> UiNode
 ) {
-    private val observedStates = mutableSetOf<MutableState<*>>()
     private val invalidationListeners = mutableSetOf<() -> Unit>()
     // TODO: Replace this simplified per-scope map with a more faithful slot table
     // once the runtime grows into partial/scoped recomposition.
@@ -63,11 +64,13 @@ class RootComposition(
     private val stateToScopes = linkedMapOf<MutableState<*>, MutableSet<ScopeKey>>()
     private val stateDebugIds = IdentityHashMap<MutableState<*>, Int>()
     private val visitedScopes = mutableSetOf<ScopeKey>()
+    private val dirtyScopes = linkedSetOf<ScopeKey>()
     private val debugEvents = mutableListOf<String>()
     private var recompositionCount = 0
     private var invalidationCount = 0
     private var nextStateDebugId = 1
     private var lastTreeDump = ""
+    private var lastDirtyScopeDump = ""
     private var dirty = true
 
     var latestTree: UiNode? = null
@@ -81,7 +84,6 @@ class RootComposition(
 
     fun recompose(): UiNode {
         beginPass()
-        clearObservedStates()
         val tree = CompositionRuntime.withCurrentComposition(this) {
             CompositionRuntime.withCurrentScope(ScopeKey.root) {
                 enterScope(ScopeKey.root, parentScopeKey = null, childIndex = null)
@@ -95,6 +97,7 @@ class RootComposition(
         debugEvents.add(lastTreeDump)
         dirty = false
         pruneUnusedScopes()
+        dirtyScopes.clear()
         return tree
     }
 
@@ -105,12 +108,12 @@ class RootComposition(
             lastTreeDump = lastTreeDump,
             scopeDump = buildScopeDump(),
             dependencyDump = buildDependencyDump(),
+            dirtyScopeDump = lastDirtyScopeDump,
             events = debugEvents.toList()
         )
     }
 
     internal fun registerRead(state: MutableState<*>) {
-        observedStates.add(state)
         state.addObserver(this)
         val scopeKey = CompositionRuntime.currentScope() ?: ScopeKey.root
         val scopeRecord = scopeRecords.getOrPut(scopeKey) {
@@ -131,7 +134,37 @@ class RootComposition(
         record.parentScopeKey = parentScopeKey
         record.childIndex = childIndex
         record.visited = true
-        debugEvents.add("scope enter ${scopeKey.describe()}")
+        if (isScopeDirty(scopeKey) || record.cachedNode == null) {
+            prepareScopeForRecomposition(scopeKey, record)
+            debugEvents.add("scope compose ${scopeKey.describe()}")
+        } else {
+            debugEvents.add("scope reuse ${scopeKey.describe()}")
+        }
+    }
+
+    internal fun shouldReuseScope(scopeKey: ScopeKey): UiNode? {
+        val record = scopeRecords[scopeKey] ?: return null
+        return if (isScopeDirty(scopeKey) || record.cachedNode == null) {
+            null
+        } else {
+            record.cachedNode
+        }
+    }
+
+    internal fun finishScope(scopeKey: ScopeKey, node: UiNode, childScopeKeys: List<ScopeKey>) {
+        val record = scopeRecords.getOrPut(scopeKey) {
+            ScopeRecord(scopeKey, parentScopeKey = null, childIndex = null)
+        }
+        val hadCachedNode = record.cachedNode != null
+        val previousChildScopeKeys = record.childScopeKeys
+        record.cachedNode = node
+        record.childScopeKeys = childScopeKeys
+        if (hadCachedNode && previousChildScopeKeys != childScopeKeys) {
+            debugEvents.add(
+                "scope shape changed ${scopeKey.describe()} old=${buildScopeListDump(previousChildScopeKeys)} new=${buildScopeListDump(childScopeKeys)}"
+            )
+        }
+        dirtyScopes.remove(scopeKey)
     }
 
     internal fun <T> remember(scopeKey: ScopeKey, slotIndex: Int, factory: () -> T): T {
@@ -149,14 +182,21 @@ class RootComposition(
         return value
     }
 
-    internal fun invalidate() {
+    internal fun invalidate(state: MutableState<*>) {
+        markDirtyScopes(stateToScopes[state].orEmpty())
+
         if (dirty) {
+            debugEvents.add(
+                "invalidate while dirty ${stateLabel(state)} dirtyScopes=${buildScopeListDump(dirtyScopes)}"
+            )
             return
         }
 
         dirty = true
         invalidationCount += 1
-        debugEvents.add("invalidate #$invalidationCount")
+        debugEvents.add(
+            "invalidate #$invalidationCount ${stateLabel(state)} dirtyScopes=${buildScopeListDump(dirtyScopes)}"
+        )
         invalidationListeners.forEach { listener -> listener() }
     }
 
@@ -164,20 +204,29 @@ class RootComposition(
         debugEvents.add(message)
     }
 
-    private fun clearObservedStates() {
-        observedStates.forEach { state ->
-            state.removeObserver(this)
-        }
-        observedStates.clear()
-    }
-
     private fun beginPass() {
-        scopeRecords.clear()
-        stateToScopes.clear()
         visitedScopes.clear()
+        scopeRecords.values.forEach { record ->
+            record.visited = false
+        }
+        if (recompositionCount == 0) {
+            dirtyScopes.add(ScopeKey.root)
+        }
     }
 
     private fun pruneUnusedScopes() {
+        val removedScopes = scopeRecords.values.filterNot { it.visited }.map { it.scopeKey }
+        removedScopes.forEach { removedScope ->
+            val removedRecord = scopeRecords.remove(removedScope) ?: return@forEach
+            removedRecord.readStates.forEach { state ->
+                stateToScopes[state]?.remove(removedScope)
+                if (stateToScopes[state]?.isEmpty() == true) {
+                    stateToScopes.remove(state)
+                    state.removeObserver(this)
+                }
+            }
+            slotTable.remove(removedScope)
+        }
         slotTable.keys.retainAll(visitedScopes)
     }
 
@@ -194,6 +243,8 @@ class RootComposition(
                 append(record.parentScopeKey?.describe() ?: "-")
                 append(" child=")
                 append(record.childIndex?.toString() ?: "-")
+                append(" shape=")
+                append(buildScopeListDump(record.childScopeKeys))
                 append(" reads=")
                 append(
                     if (record.readStates.isEmpty()) {
@@ -227,8 +278,52 @@ class RootComposition(
                     ) { it.describe() }
                 )
                 appendLine()
-            }
+        }
         }.trimEnd()
+    }
+
+    private fun buildScopeListDump(scopeKeys: Collection<ScopeKey>): String {
+        if (scopeKeys.isEmpty()) {
+            return "[]"
+        }
+
+        return scopeKeys.joinToString(
+            prefix = "[",
+            postfix = "]"
+        ) { it.describe() }
+    }
+
+    private fun markDirtyScopes(affectedScopes: Collection<ScopeKey>) {
+        dirtyScopes.add(ScopeKey.root)
+        affectedScopes.forEach { affectedScope ->
+            markDirtyScopeAndAncestors(affectedScope)
+        }
+        lastDirtyScopeDump = buildScopeListDump(dirtyScopes)
+    }
+
+    private fun markDirtyScopeAndAncestors(scopeKey: ScopeKey) {
+        var current: ScopeKey? = scopeKey
+        while (current != null) {
+            dirtyScopes.add(current)
+            current = scopeRecords[current]?.parentScopeKey
+        }
+    }
+
+    private fun isScopeDirty(scopeKey: ScopeKey): Boolean = dirtyScopes.contains(scopeKey)
+
+    private fun prepareScopeForRecomposition(scopeKey: ScopeKey, record: ScopeRecord) {
+        if (record.readStates.isEmpty()) {
+            return
+        }
+
+        record.readStates.forEach { state ->
+            stateToScopes[state]?.remove(scopeKey)
+            if (stateToScopes[state]?.isEmpty() == true) {
+                stateToScopes.remove(state)
+                state.removeObserver(this)
+            }
+        }
+        record.readStates.clear()
     }
 
     private fun stateLabel(state: MutableState<*>): String {
