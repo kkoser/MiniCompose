@@ -152,6 +152,17 @@ class RootComposition(
         }
     }
 
+    internal fun retainScopeSubtree(scopeKey: ScopeKey) {
+        val record = scopeRecords[scopeKey] ?: return
+        if (!visitedScopes.add(scopeKey)) {
+            // Already retained.
+        }
+        record.visited = true
+        record.childScopeKeys.forEach { childScopeKey ->
+            retainScopeSubtree(childScopeKey)
+        }
+    }
+
     internal fun finishScope(scopeKey: ScopeKey, node: UiNode, childScopeKeys: List<ScopeKey>) {
         val record = scopeRecords.getOrPut(scopeKey) {
             ScopeRecord(scopeKey, parentScopeKey = null, childIndex = null)

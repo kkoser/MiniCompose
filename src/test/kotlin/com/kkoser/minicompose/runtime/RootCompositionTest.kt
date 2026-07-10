@@ -1,6 +1,7 @@
 package com.kkoser.minicompose.runtime
 
 import com.kkoser.minicompose.ui.UiColumn
+import com.kkoser.minicompose.ui.UiButton
 import com.kkoser.minicompose.ui.UiText
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -227,5 +228,36 @@ class RootCompositionTest {
 
         assertSame(firstLeft, rememberedLeft)
         assertSame(firstRight, rememberedRight)
+    }
+
+    @Test
+    fun `reused descendant scopes keep their state observers after sibling recomposition`() {
+        val parentState = mutableStateOf(0)
+        val childState = mutableStateOf(0)
+        lateinit var childButton: UiButton
+
+        val composition = RootComposition {
+            column {
+                text("Parent: ${parentState.value}")
+                column {
+                    text("Child: ${childState.value}")
+                    childButton = button("Child +1") {
+                        childState.value += 1
+                    }
+                }
+            }
+        }
+
+        composition.recompose()
+        parentState.value = 1
+        composition.recompose()
+
+        assertFalse(composition.isDirty())
+
+        childButton.onClick.invoke()
+
+        assertTrue(composition.isDirty())
+        val updatedTree = composition.recompose()
+        assertEquals(UiText("Child: 1"), (updatedTree as UiColumn).children[1].let { (it as UiColumn).children[0] })
     }
 }

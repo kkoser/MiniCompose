@@ -51,6 +51,7 @@ class Composer(
         val reusableNode = rootComposition?.shouldReuseScope(scopeKey, expectedNodeClass)
         if (reusableNode != null) {
             rootComposition?.enterScope(scopeKey, parentFrame.scopeKey, childIndex)
+            rootComposition?.retainScopeSubtree(scopeKey)
             @Suppress("UNCHECKED_CAST")
             val reused = reusableNode as T
             parentFrame.children.add(reusableNode)
