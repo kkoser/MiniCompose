@@ -40,6 +40,7 @@ class Composer(
     }
 
     internal fun <T : UiNode> emitContainer(
+        expectedNodeClass: Class<out UiNode>,
         factory: (List<UiNode>) -> T,
         content: Composer.() -> Unit
     ): T {
@@ -47,7 +48,7 @@ class Composer(
         val childIndex = parentFrame.nextChildIndex
         parentFrame.nextChildIndex += 1
         val scopeKey = parentFrame.scopeKey.child(childIndex)
-        val reusableNode = rootComposition?.shouldReuseScope(scopeKey)
+        val reusableNode = rootComposition?.shouldReuseScope(scopeKey, expectedNodeClass)
         if (reusableNode != null) {
             rootComposition?.enterScope(scopeKey, parentFrame.scopeKey, childIndex)
             @Suppress("UNCHECKED_CAST")
@@ -100,11 +101,11 @@ fun Composer.button(text: String, onClick: () -> Unit): UiButton = emit(UiButton
 fun Composer.column(
     spacing: Int = 0,
     content: Composer.() -> Unit
-): UiColumn = emitContainer({ children -> UiColumn(children, spacing) }, content)
+): UiColumn = emitContainer(UiColumn::class.java, { children -> UiColumn(children, spacing) }, content)
 
 fun Composer.row(
     spacing: Int = 0,
     content: Composer.() -> Unit
-): UiRow = emitContainer({ children -> UiRow(children, spacing) }, content)
+): UiRow = emitContainer(UiRow::class.java, { children -> UiRow(children, spacing) }, content)
 
 fun <T> Composer.remember(factory: () -> T): T = rememberValue(factory)

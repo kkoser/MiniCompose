@@ -21,7 +21,8 @@ internal data class ScopeRecord(
     var visited: Boolean = false,
     val readStates: MutableSet<MutableState<*>> = linkedSetOf(),
     var childScopeKeys: List<ScopeKey> = emptyList(),
-    var cachedNode: UiNode? = null
+    var cachedNode: UiNode? = null,
+    var cachedNodeClass: Class<out UiNode>? = null
 )
 
 internal object CompositionRuntime {
@@ -142,9 +143,9 @@ class RootComposition(
         }
     }
 
-    internal fun shouldReuseScope(scopeKey: ScopeKey): UiNode? {
+    internal fun shouldReuseScope(scopeKey: ScopeKey, expectedNodeClass: Class<out UiNode>): UiNode? {
         val record = scopeRecords[scopeKey] ?: return null
-        return if (isScopeDirty(scopeKey) || record.cachedNode == null) {
+        return if (isScopeDirty(scopeKey) || record.cachedNode == null || record.cachedNodeClass != expectedNodeClass) {
             null
         } else {
             record.cachedNode
@@ -158,6 +159,7 @@ class RootComposition(
         val hadCachedNode = record.cachedNode != null
         val previousChildScopeKeys = record.childScopeKeys
         record.cachedNode = node
+        record.cachedNodeClass = node::class.java
         record.childScopeKeys = childScopeKeys
         if (hadCachedNode && previousChildScopeKeys != childScopeKeys) {
             debugEvents.add(
