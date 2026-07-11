@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 class RootCompositionTest {
     @Test
@@ -231,6 +232,101 @@ class RootCompositionTest {
 
         assertSame(firstLeft, rememberedLeft)
         assertSame(firstRight, rememberedRight)
+    }
+
+    @Test
+    fun `key preserves remembered values when keyed siblings reorder under the same parent`() {
+        val reversed = mutableStateOf(false)
+        var alphaRemembered: Any? = null
+        var betaRemembered: Any? = null
+
+        val composition = RootComposition {
+            column {
+                if (reversed.value) {
+                    key("beta") {
+                        column {
+                            betaRemembered = remember { Any() }
+                            text("Beta")
+                        }
+                    }
+                    key("alpha") {
+                        column {
+                            alphaRemembered = remember { Any() }
+                            text("Alpha")
+                        }
+                    }
+                } else {
+                    key("alpha") {
+                        column {
+                            alphaRemembered = remember { Any() }
+                            text("Alpha")
+                        }
+                    }
+                    key("beta") {
+                        column {
+                            betaRemembered = remember { Any() }
+                            text("Beta")
+                        }
+                    }
+                }
+            }
+        }
+
+        composition.recompose()
+        val firstAlpha = alphaRemembered
+        val firstBeta = betaRemembered
+
+        reversed.value = true
+        val updatedTree = composition.recompose()
+
+        val updatedColumn = updatedTree as UiColumn
+        assertEquals("Beta", ((updatedColumn.children[0] as UiColumn).children[0] as UiText).text)
+        assertEquals("Alpha", ((updatedColumn.children[1] as UiColumn).children[0] as UiText).text)
+        assertSame(firstAlpha, alphaRemembered)
+        assertSame(firstBeta, betaRemembered)
+    }
+
+    @Test
+    fun `changing a key recreates only that keyed group`() {
+        val activeKey = mutableStateOf("alpha")
+        var remembered: Any? = null
+
+        val composition = RootComposition {
+            column {
+                key(activeKey.value) {
+                    column {
+                        remembered = remember { Any() }
+                        text("Keyed")
+                    }
+                }
+            }
+        }
+
+        composition.recompose()
+        val first = remembered
+
+        activeKey.value = "beta"
+        composition.recompose()
+
+        assertNotSame(first, remembered)
+    }
+
+    @Test
+    fun `duplicate keys in the same keyed region fail fast`() {
+        val composition = RootComposition {
+            column {
+                key("dup") {
+                    text("First")
+                }
+                key("dup") {
+                    text("Second")
+                }
+            }
+        }
+
+        assertThrows<IllegalStateException> {
+            composition.recompose()
+        }
     }
 
     @Test

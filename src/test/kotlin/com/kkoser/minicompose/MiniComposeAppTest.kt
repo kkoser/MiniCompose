@@ -28,7 +28,7 @@ class MiniComposeAppTest {
         val tree = MiniComposeApp.buildDemoTree()
 
         val column = assertInstanceOf(UiColumn::class.java, tree)
-        assertEquals(6, column.children.size)
+        assertEquals(7, column.children.size)
         assertEquals(18, column.spacing)
         assertEquals(UiText("MiniCompose diagnostics"), column.children[0])
         assertEquals(UiText("Remembered build token: 1"), column.children[1])
@@ -67,6 +67,13 @@ class MiniComposeAppTest {
         assertEquals(UiText("Alternate layout: false"), swapSection.children[1])
         assertInstanceOf(UiColumn::class.java, swapSection.children[2])
         assertInstanceOf(UiRow::class.java, swapSection.children[3])
+
+        val keyedSection = assertInstanceOf(UiColumn::class.java, column.children[6])
+        assertEquals(UiText("4. Keyed reorder with preserved state"), keyedSection.children[0])
+        assertEquals(UiText("Keyed reverse: false"), keyedSection.children[1])
+        assertInstanceOf(UiColumn::class.java, keyedSection.children[2])
+        assertInstanceOf(UiColumn::class.java, keyedSection.children[3])
+        assertInstanceOf(UiRow::class.java, keyedSection.children[4])
     }
 
     @Test

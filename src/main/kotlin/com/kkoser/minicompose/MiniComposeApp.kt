@@ -24,6 +24,8 @@ object MiniComposeApp {
     private var compactLayoutToken = 0
     private var expandedLeftToken = 0
     private var expandedRightToken = 0
+    private var keyedAlphaToken = 0
+    private var keyedBetaToken = 0
     private var rootComposition = createRootComposition()
 
     @JvmStatic
@@ -61,6 +63,8 @@ object MiniComposeApp {
         compactLayoutToken = 0
         expandedLeftToken = 0
         expandedRightToken = 0
+        keyedAlphaToken = 0
+        keyedBetaToken = 0
         rootComposition = createRootComposition()
     }
 
@@ -79,6 +83,8 @@ object MiniComposeApp {
         val transientCounter = remember { mutableStateOf(0) }
         val showAlternateLayout = remember { mutableStateOf(false) }
         val layoutFlipCounter = remember { mutableStateOf(0) }
+        val showKeyedReverse = remember { mutableStateOf(false) }
+        val keyedFlipCounter = remember { mutableStateOf(0) }
 
         text("MiniCompose diagnostics")
         text("Remembered build token: $buildToken")
@@ -168,6 +174,49 @@ object MiniComposeApp {
                     layoutFlipCounter.value += 1
                 }
                 text("Layout swaps: ${layoutFlipCounter.value}")
+            }
+        }
+
+        column(spacing = 12) {
+            text("4. Keyed reorder with preserved state")
+            text("Keyed reverse: ${showKeyedReverse.value}")
+            if (showKeyedReverse.value) {
+                key("beta") {
+                    column(spacing = 6) {
+                        val betaToken = remember { ++keyedBetaToken }
+                        text("Keyed beta token: $betaToken")
+                        text("Item: beta")
+                    }
+                }
+                key("alpha") {
+                    column(spacing = 6) {
+                        val alphaToken = remember { ++keyedAlphaToken }
+                        text("Keyed alpha token: $alphaToken")
+                        text("Item: alpha")
+                    }
+                }
+            } else {
+                key("alpha") {
+                    column(spacing = 6) {
+                        val alphaToken = remember { ++keyedAlphaToken }
+                        text("Keyed alpha token: $alphaToken")
+                        text("Item: alpha")
+                    }
+                }
+                key("beta") {
+                    column(spacing = 6) {
+                        val betaToken = remember { ++keyedBetaToken }
+                        text("Keyed beta token: $betaToken")
+                        text("Item: beta")
+                    }
+                }
+            }
+            row(spacing = 12) {
+                button("Reverse keyed items") {
+                    showKeyedReverse.value = !showKeyedReverse.value
+                    keyedFlipCounter.value += 1
+                }
+                text("Keyed swaps: ${keyedFlipCounter.value}")
             }
         }
     }

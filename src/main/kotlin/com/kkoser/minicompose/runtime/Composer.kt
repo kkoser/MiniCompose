@@ -14,6 +14,7 @@ class Composer(
         val groupAnchor: GroupAnchor,
         val children: MutableList<UiNode> = mutableListOf(),
         val childAnchors: MutableList<GroupAnchor> = mutableListOf(),
+        val seenKeySignatures: MutableSet<KeySignature> = linkedSetOf(),
         var nextGroupIndex: Int = 0,
         var nextSlotIndex: Int = 0
     )
@@ -36,12 +37,12 @@ class Composer(
         val groupAnchor = rootComposition?.resolveChildGroup(parentFrame.groupAnchor, groupIndex)
             ?: parentFrame.groupAnchor
 
-        rootComposition?.shouldReuseGroup(groupAnchor, expectedNodeClass)
+        rootComposition?.shouldReuseNodeGroup(groupAnchor, expectedNodeClass)
         rootComposition?.enterGroup(groupAnchor, parentFrame.groupAnchor, groupIndex, forceCompose = true)
         val node = CompositionRuntime.withCurrentGroup(groupAnchor) {
             factory()
         }
-        rootComposition?.finishGroup(groupAnchor, node, childAnchors = emptyList())
+        rootComposition?.finishGroup(groupAnchor, listOf(node), childAnchors = emptyList())
         parentFrame.children.add(node)
         parentFrame.childAnchors.add(groupAnchor)
         return node
@@ -58,7 +59,7 @@ class Composer(
         val groupAnchor = rootComposition?.resolveChildGroup(parentFrame.groupAnchor, groupIndex)
             ?: parentFrame.groupAnchor
 
-        val reusableNode = rootComposition?.shouldReuseGroup(groupAnchor, expectedNodeClass)
+        val reusableNode = rootComposition?.shouldReuseNodeGroup(groupAnchor, expectedNodeClass)
         if (reusableNode != null) {
             rootComposition.enterGroup(groupAnchor, parentFrame.groupAnchor, groupIndex)
             rootComposition.retainGroupSubtree(groupAnchor)
@@ -86,10 +87,52 @@ class Composer(
         }
 
         val node = factory(children)
-        rootComposition?.finishGroup(groupAnchor, node, childAnchors)
+        rootComposition?.finishGroup(groupAnchor, listOf(node), childAnchors)
         parentFrame.children.add(node)
         parentFrame.childAnchors.add(groupAnchor)
         return node
+    }
+
+    internal fun key(vararg keys: Any?, content: Composer.() -> Unit) {
+        val parentFrame = currentFrame()
+        val groupIndex = parentFrame.nextGroupIndex
+        parentFrame.nextGroupIndex += 1
+        val keySignature = KeySignature(keys.toList())
+        if (!parentFrame.seenKeySignatures.add(keySignature)) {
+            error("Duplicate key ${keySignature.describe()} in the same keyed sibling region")
+        }
+
+        val groupAnchor = rootComposition?.resolveKeyedGroup(parentFrame.groupAnchor, keySignature)
+            ?: parentFrame.groupAnchor
+
+        val reusableNodes = rootComposition?.shouldReuseKeyedGroup(groupAnchor)
+        if (reusableNodes != null) {
+            rootComposition?.enterGroup(groupAnchor, parentFrame.groupAnchor, groupIndex)
+            rootComposition?.retainGroupSubtree(groupAnchor)
+            parentFrame.children.addAll(reusableNodes)
+            parentFrame.childAnchors.add(groupAnchor)
+            return
+        }
+
+        rootComposition?.enterGroup(groupAnchor, parentFrame.groupAnchor, groupIndex)
+
+        frameStack.addLast(Frame(groupAnchor))
+        val childOutputs: List<UiNode>
+        val childAnchors: List<GroupAnchor>
+        try {
+            CompositionRuntime.withCurrentGroup(groupAnchor) {
+                content()
+            }
+            val frame = currentFrame()
+            childOutputs = frame.children.toList()
+            childAnchors = frame.childAnchors.toList()
+        } finally {
+            frameStack.removeLast()
+        }
+
+        rootComposition?.finishGroup(groupAnchor, childOutputs, childAnchors)
+        parentFrame.children.addAll(childOutputs)
+        parentFrame.childAnchors.add(groupAnchor)
     }
 
     internal fun <T> rememberValue(factory: () -> T): T {
@@ -108,7 +151,7 @@ fun compose(block: Composer.() -> UiNode): UiNode = Composer().block()
 internal fun compose(rootComposition: RootComposition, block: Composer.() -> UiNode): UiNode {
     val composer = Composer(rootComposition)
     val node = composer.block()
-    rootComposition.finishGroup(GroupAnchor(0), node, composer.rootChildAnchors())
+    rootComposition.finishGroup(GroupAnchor(0), listOf(node), composer.rootChildAnchors())
     return node
 }
 

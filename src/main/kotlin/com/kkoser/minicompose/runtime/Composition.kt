@@ -114,6 +114,21 @@ class RootComposition(
         return slotTable.createGroup(parentAnchor, groupIndex)
     }
 
+    internal fun resolveKeyedGroup(parentAnchor: GroupAnchor, keySignature: KeySignature): GroupAnchor {
+        val existing = slotTable.keyedChild(parentAnchor, keySignature)
+        if (existing != null && slotTable.contains(existing)) {
+            val record = slotTable.group(existing)
+            record.parentAnchor = parentAnchor
+            record.keySignature = keySignature
+            record.kind = GroupKind.KEYED_INLINE
+            return existing
+        }
+
+        val anchor = slotTable.createKeyedGroup(parentAnchor, keySignature)
+        slotTable.registerKeyedChild(parentAnchor, keySignature, anchor)
+        return anchor
+    }
+
     internal fun enterGroup(
         anchor: GroupAnchor,
         parentAnchor: GroupAnchor?,
@@ -125,7 +140,7 @@ class RootComposition(
         record.parentAnchor = parentAnchor
         record.groupIndexInParent = groupIndex
         record.visited = true
-        if (forceCompose || isGroupDirty(anchor) || record.cachedNode == null) {
+        if (forceCompose || isGroupDirty(anchor) || !record.hasCachedOutput) {
             prepareGroupForRecomposition(anchor, record)
             debugEvents.add("group compose ${describeGroup(anchor)}")
         } else {
@@ -133,17 +148,30 @@ class RootComposition(
         }
     }
 
-    internal fun shouldReuseGroup(anchor: GroupAnchor, expectedNodeClass: Class<out UiNode>): UiNode? {
+    internal fun shouldReuseNodeGroup(anchor: GroupAnchor, expectedNodeClass: Class<out UiNode>): UiNode? {
         val record = slotTable.group(anchor)
         if (record.cachedNodeClass != null && record.cachedNodeClass != expectedNodeClass) {
             resetGroup(anchor, record)
             return null
         }
 
-        return if (isGroupDirty(anchor) || record.cachedNode == null) {
+        if (record.kind == GroupKind.KEYED_INLINE) {
+            return null
+        }
+
+        return if (isGroupDirty(anchor) || !record.hasCachedOutput || record.cachedNodes.size != 1) {
             null
         } else {
-            record.cachedNode
+            record.cachedNodes.single()
+        }
+    }
+
+    internal fun shouldReuseKeyedGroup(anchor: GroupAnchor): List<UiNode>? {
+        val record = slotTable.group(anchor)
+        return if (isGroupDirty(anchor) || !record.hasCachedOutput) {
+            null
+        } else {
+            record.cachedNodes
         }
     }
 
@@ -156,12 +184,13 @@ class RootComposition(
         }
     }
 
-    internal fun finishGroup(anchor: GroupAnchor, node: UiNode, childAnchors: List<GroupAnchor>) {
+    internal fun finishGroup(anchor: GroupAnchor, nodes: List<UiNode>, childAnchors: List<GroupAnchor>) {
         val record = slotTable.group(anchor)
-        val hadCachedNode = record.cachedNode != null
+        val hadCachedNode = record.hasCachedOutput
         val previousChildAnchors = record.childAnchors
-        record.cachedNode = node
-        record.cachedNodeClass = node::class.java
+        record.hasCachedOutput = true
+        record.cachedNodes = nodes
+        record.cachedNodeClass = nodes.singleOrNull()?.let { it::class.java }
         record.childAnchors = childAnchors
         if (hadCachedNode && previousChildAnchors != childAnchors) {
             debugEvents.add(
@@ -256,7 +285,8 @@ class RootComposition(
         clearObservedStates(anchor, record)
         record.childAnchors = emptyList()
         record.slots.clear()
-        record.cachedNode = null
+        record.hasCachedOutput = false
+        record.cachedNodes = emptyList()
         record.cachedNodeClass = null
     }
 
@@ -274,6 +304,12 @@ class RootComposition(
                 append(record.parentAnchor?.let(::describeGroup) ?: "-")
                 append(" child=")
                 append(record.groupIndexInParent?.toString() ?: "-")
+                append(" kind=")
+                append(record.kind)
+                record.keySignature?.let { keySignature ->
+                    append(" key=")
+                    append(keySignature.describe())
+                }
                 append(" shape=")
                 append(buildGroupListDump(record.childAnchors))
                 append(" slots=")
