@@ -82,7 +82,7 @@ object MiniComposeApp {
 
         text("MiniCompose diagnostics")
         text("Remembered build token: $buildToken")
-        text("Use the controls below to watch scope reuse in the debug panel.")
+        text("Use the controls below to watch group reuse in the debug panel.")
 
         column(spacing = 12) {
             text("1. Shared parent state with stable remembered siblings")

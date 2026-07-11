@@ -11,31 +11,39 @@ class Composer(
     private val rootComposition: RootComposition? = null
 ) {
     private data class Frame(
-        val scopeKey: ScopeKey,
+        val groupAnchor: GroupAnchor,
         val children: MutableList<UiNode> = mutableListOf(),
-        val childScopeKeys: MutableList<ScopeKey> = mutableListOf(),
-        var nextChildIndex: Int = 0,
+        val childAnchors: MutableList<GroupAnchor> = mutableListOf(),
+        var nextGroupIndex: Int = 0,
         var nextSlotIndex: Int = 0
     )
 
     private val frameStack = ArrayDeque<Frame>()
 
     init {
-        frameStack.addLast(Frame(ScopeKey.root))
+        frameStack.addLast(Frame(GroupAnchor(0)))
     }
 
     private fun currentFrame(): Frame = frameStack.last()
 
-    private fun reserveChildIndex(): Int {
-        val frame = currentFrame()
-        val childIndex = frame.nextChildIndex
-        frame.nextChildIndex += 1
-        return childIndex
-    }
+    internal fun <T : UiNode> emit(
+        expectedNodeClass: Class<out UiNode>,
+        factory: () -> T
+    ): T {
+        val parentFrame = currentFrame()
+        val groupIndex = parentFrame.nextGroupIndex
+        parentFrame.nextGroupIndex += 1
+        val groupAnchor = rootComposition?.resolveChildGroup(parentFrame.groupAnchor, groupIndex)
+            ?: parentFrame.groupAnchor
 
-    internal fun <T : UiNode> emit(node: T): T {
-        reserveChildIndex()
-        currentFrame().children.add(node)
+        rootComposition?.shouldReuseGroup(groupAnchor, expectedNodeClass)
+        rootComposition?.enterGroup(groupAnchor, parentFrame.groupAnchor, groupIndex, forceCompose = true)
+        val node = CompositionRuntime.withCurrentGroup(groupAnchor) {
+            factory()
+        }
+        rootComposition?.finishGroup(groupAnchor, node, childAnchors = emptyList())
+        parentFrame.children.add(node)
+        parentFrame.childAnchors.add(groupAnchor)
         return node
     }
 
@@ -45,59 +53,69 @@ class Composer(
         content: Composer.() -> Unit
     ): T {
         val parentFrame = currentFrame()
-        val childIndex = parentFrame.nextChildIndex
-        parentFrame.nextChildIndex += 1
-        val scopeKey = parentFrame.scopeKey.child(childIndex)
-        val reusableNode = rootComposition?.shouldReuseScope(scopeKey, expectedNodeClass)
+        val groupIndex = parentFrame.nextGroupIndex
+        parentFrame.nextGroupIndex += 1
+        val groupAnchor = rootComposition?.resolveChildGroup(parentFrame.groupAnchor, groupIndex)
+            ?: parentFrame.groupAnchor
+
+        val reusableNode = rootComposition?.shouldReuseGroup(groupAnchor, expectedNodeClass)
         if (reusableNode != null) {
-            rootComposition?.enterScope(scopeKey, parentFrame.scopeKey, childIndex)
-            rootComposition?.retainScopeSubtree(scopeKey)
+            rootComposition.enterGroup(groupAnchor, parentFrame.groupAnchor, groupIndex)
+            rootComposition.retainGroupSubtree(groupAnchor)
             @Suppress("UNCHECKED_CAST")
             val reused = reusableNode as T
-            parentFrame.children.add(reusableNode)
-            parentFrame.childScopeKeys.add(scopeKey)
+            parentFrame.children.add(reused)
+            parentFrame.childAnchors.add(groupAnchor)
             return reused
         }
 
-        rootComposition?.enterScope(scopeKey, parentFrame.scopeKey, childIndex)
+        rootComposition?.enterGroup(groupAnchor, parentFrame.groupAnchor, groupIndex)
 
-        frameStack.addLast(Frame(scopeKey))
-        var children: List<UiNode>? = null
-        var childScopeKeys: List<ScopeKey> = emptyList()
+        frameStack.addLast(Frame(groupAnchor))
+        val children: List<UiNode>
+        val childAnchors: List<GroupAnchor>
         try {
-            CompositionRuntime.withCurrentScope(scopeKey) {
+            CompositionRuntime.withCurrentGroup(groupAnchor) {
                 content()
             }
-            children = currentFrame().children.toList()
-            childScopeKeys = currentFrame().childScopeKeys.toList()
+            val frame = currentFrame()
+            children = frame.children.toList()
+            childAnchors = frame.childAnchors.toList()
         } finally {
             frameStack.removeLast()
         }
 
-        val node = factory(requireNotNull(children))
-        rootComposition?.finishScope(scopeKey, node, childScopeKeys)
-        currentFrame().children.add(node)
-        currentFrame().childScopeKeys.add(scopeKey)
+        val node = factory(children)
+        rootComposition?.finishGroup(groupAnchor, node, childAnchors)
+        parentFrame.children.add(node)
+        parentFrame.childAnchors.add(groupAnchor)
         return node
     }
 
     internal fun <T> rememberValue(factory: () -> T): T {
         val composition = rootComposition ?: error("remember can only be called during composition")
         val frame = currentFrame()
-        val value = composition.remember(frame.scopeKey, frame.nextSlotIndex, factory)
+        val value = composition.remember(frame.groupAnchor, frame.nextSlotIndex, factory)
         frame.nextSlotIndex += 1
         return value
     }
+
+    internal fun rootChildAnchors(): List<GroupAnchor> = frameStack.first.childAnchors.toList()
 }
 
 fun compose(block: Composer.() -> UiNode): UiNode = Composer().block()
 
-internal fun compose(rootComposition: RootComposition, block: Composer.() -> UiNode): UiNode =
-    Composer(rootComposition).block()
+internal fun compose(rootComposition: RootComposition, block: Composer.() -> UiNode): UiNode {
+    val composer = Composer(rootComposition)
+    val node = composer.block()
+    rootComposition.finishGroup(GroupAnchor(0), node, composer.rootChildAnchors())
+    return node
+}
 
-fun Composer.text(text: String): UiText = emit(UiText(text))
+fun Composer.text(text: String): UiText = emit(UiText::class.java) { UiText(text) }
 
-fun Composer.button(text: String, onClick: () -> Unit): UiButton = emit(UiButton(text, onClick))
+fun Composer.button(text: String, onClick: () -> Unit): UiButton =
+    emit(UiButton::class.java) { UiButton(text, onClick) }
 
 fun Composer.column(
     spacing: Int = 0,

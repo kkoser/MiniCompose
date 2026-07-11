@@ -4,30 +4,9 @@ import com.kkoser.minicompose.ui.UiNode
 import com.kkoser.minicompose.ui.dumpTree
 import java.util.IdentityHashMap
 
-internal data class ScopeKey(val path: List<Int>) {
-    fun child(index: Int): ScopeKey = ScopeKey(path + index)
-
-    fun describe(): String = if (path.isEmpty()) "root" else path.joinToString(separator = "/")
-
-    companion object {
-        val root = ScopeKey(emptyList())
-    }
-}
-
-internal data class ScopeRecord(
-    val scopeKey: ScopeKey,
-    var parentScopeKey: ScopeKey?,
-    var childIndex: Int?,
-    var visited: Boolean = false,
-    val readStates: MutableSet<MutableState<*>> = linkedSetOf(),
-    var childScopeKeys: List<ScopeKey> = emptyList(),
-    var cachedNode: UiNode? = null,
-    var cachedNodeClass: Class<out UiNode>? = null
-)
-
 internal object CompositionRuntime {
     private val currentComposition = ThreadLocal<RootComposition?>()
-    private val currentScope = ThreadLocal<ScopeKey?>()
+    private val currentGroup = ThreadLocal<GroupAnchor?>()
 
     fun <T> withCurrentComposition(composition: RootComposition, block: () -> T): T {
         val previous = currentComposition.get()
@@ -41,37 +20,34 @@ internal object CompositionRuntime {
 
     fun currentComposition(): RootComposition? = currentComposition.get()
 
-    fun <T> withCurrentScope(scopeKey: ScopeKey, block: () -> T): T {
-        val previous = currentScope.get()
-        currentScope.set(scopeKey)
+    fun <T> withCurrentGroup(groupAnchor: GroupAnchor, block: () -> T): T {
+        val previous = currentGroup.get()
+        currentGroup.set(groupAnchor)
         return try {
             block()
         } finally {
-            currentScope.set(previous)
+            currentGroup.set(previous)
         }
     }
 
-    fun currentScope(): ScopeKey? = currentScope.get()
+    fun currentGroup(): GroupAnchor? = currentGroup.get()
 }
 
 class RootComposition(
     private val content: Composer.() -> UiNode
 ) {
     private val invalidationListeners = mutableSetOf<() -> Unit>()
-    // TODO: Replace this simplified per-scope map with a more faithful slot table
-    // once the runtime grows into partial/scoped recomposition.
-    private val slotTable = mutableMapOf<ScopeKey, MutableList<Any?>>()
-    private val scopeRecords = linkedMapOf<ScopeKey, ScopeRecord>()
-    private val stateToScopes = linkedMapOf<MutableState<*>, MutableSet<ScopeKey>>()
+    private val slotTable = SlotTable()
+    private val stateToGroups = linkedMapOf<MutableState<*>, MutableSet<GroupAnchor>>()
     private val stateDebugIds = IdentityHashMap<MutableState<*>, Int>()
-    private val visitedScopes = mutableSetOf<ScopeKey>()
-    private val dirtyScopes = linkedSetOf<ScopeKey>()
+    private val visitedGroups = mutableSetOf<GroupAnchor>()
+    private val dirtyGroups = linkedSetOf<GroupAnchor>()
     private val debugEvents = mutableListOf<String>()
     private var recompositionCount = 0
     private var invalidationCount = 0
     private var nextStateDebugId = 1
     private var lastTreeDump = ""
-    private var lastDirtyScopeDump = ""
+    private var lastDirtyGroupDump = ""
     private var dirty = true
 
     var latestTree: UiNode? = null
@@ -86,8 +62,8 @@ class RootComposition(
     fun recompose(): UiNode {
         beginPass()
         val tree = CompositionRuntime.withCurrentComposition(this) {
-            CompositionRuntime.withCurrentScope(ScopeKey.root) {
-                enterScope(ScopeKey.root, parentScopeKey = null, childIndex = null)
+            CompositionRuntime.withCurrentGroup(slotTable.rootAnchor) {
+                enterGroup(slotTable.rootAnchor, parentAnchor = null, groupIndex = null)
                 compose(this, content)
             }
         }
@@ -97,8 +73,8 @@ class RootComposition(
         debugEvents.add("recompose #$recompositionCount")
         debugEvents.add(lastTreeDump)
         dirty = false
-        pruneUnusedScopes()
-        dirtyScopes.clear()
+        pruneUnusedGroups()
+        dirtyGroups.clear()
         return tree
     }
 
@@ -107,100 +83,115 @@ class RootComposition(
             recompositionCount = recompositionCount,
             invalidationCount = invalidationCount,
             lastTreeDump = lastTreeDump,
-            scopeDump = buildScopeDump(),
+            groupDump = buildGroupDump(),
             dependencyDump = buildDependencyDump(),
-            dirtyScopeDump = lastDirtyScopeDump,
+            dirtyGroupDump = lastDirtyGroupDump,
             events = debugEvents.toList()
         )
     }
 
     internal fun registerRead(state: MutableState<*>) {
         state.addObserver(this)
-        val scopeKey = CompositionRuntime.currentScope() ?: ScopeKey.root
-        val scopeRecord = scopeRecords.getOrPut(scopeKey) {
-            ScopeRecord(scopeKey, parentScopeKey = null, childIndex = null)
-        }
+        val groupAnchor = CompositionRuntime.currentGroup() ?: slotTable.rootAnchor
+        val groupRecord = slotTable.group(groupAnchor)
         val stateLabel = stateLabel(state)
-        if (scopeRecord.readStates.add(state)) {
-            debugEvents.add("state read $stateLabel in ${scopeKey.describe()}")
+        if (groupRecord.observedStates.add(state)) {
+            debugEvents.add("state read $stateLabel in ${describeGroup(groupAnchor)}")
         }
-        stateToScopes.getOrPut(state) { linkedSetOf() }.add(scopeKey)
+        stateToGroups.getOrPut(state) { linkedSetOf() }.add(groupAnchor)
     }
 
-    internal fun enterScope(scopeKey: ScopeKey, parentScopeKey: ScopeKey?, childIndex: Int?) {
-        visitedScopes.add(scopeKey)
-        val record = scopeRecords.getOrPut(scopeKey) {
-            ScopeRecord(scopeKey, parentScopeKey, childIndex)
+    internal fun resolveChildGroup(parentAnchor: GroupAnchor, groupIndex: Int): GroupAnchor {
+        val parentRecord = slotTable.group(parentAnchor)
+        val existing = parentRecord.childAnchors.getOrNull(groupIndex)
+        if (existing != null && slotTable.contains(existing)) {
+            val record = slotTable.group(existing)
+            record.parentAnchor = parentAnchor
+            record.groupIndexInParent = groupIndex
+            return existing
         }
-        record.parentScopeKey = parentScopeKey
-        record.childIndex = childIndex
+
+        return slotTable.createGroup(parentAnchor, groupIndex)
+    }
+
+    internal fun enterGroup(
+        anchor: GroupAnchor,
+        parentAnchor: GroupAnchor?,
+        groupIndex: Int?,
+        forceCompose: Boolean = false
+    ) {
+        visitedGroups.add(anchor)
+        val record = slotTable.group(anchor)
+        record.parentAnchor = parentAnchor
+        record.groupIndexInParent = groupIndex
         record.visited = true
-        if (isScopeDirty(scopeKey) || record.cachedNode == null) {
-            prepareScopeForRecomposition(scopeKey, record)
-            debugEvents.add("scope compose ${scopeKey.describe()}")
+        if (forceCompose || isGroupDirty(anchor) || record.cachedNode == null) {
+            prepareGroupForRecomposition(anchor, record)
+            debugEvents.add("group compose ${describeGroup(anchor)}")
         } else {
-            debugEvents.add("scope reuse ${scopeKey.describe()}")
+            debugEvents.add("group reuse ${describeGroup(anchor)}")
         }
     }
 
-    internal fun shouldReuseScope(scopeKey: ScopeKey, expectedNodeClass: Class<out UiNode>): UiNode? {
-        val record = scopeRecords[scopeKey] ?: return null
-        return if (isScopeDirty(scopeKey) || record.cachedNode == null || record.cachedNodeClass != expectedNodeClass) {
+    internal fun shouldReuseGroup(anchor: GroupAnchor, expectedNodeClass: Class<out UiNode>): UiNode? {
+        val record = slotTable.group(anchor)
+        if (record.cachedNodeClass != null && record.cachedNodeClass != expectedNodeClass) {
+            resetGroup(anchor, record)
+            return null
+        }
+
+        return if (isGroupDirty(anchor) || record.cachedNode == null) {
             null
         } else {
             record.cachedNode
         }
     }
 
-    internal fun retainScopeSubtree(scopeKey: ScopeKey) {
-        val record = scopeRecords[scopeKey] ?: return
-        if (!visitedScopes.add(scopeKey)) {
-            // Already retained.
-        }
+    internal fun retainGroupSubtree(anchor: GroupAnchor) {
+        val record = slotTable.group(anchor)
+        visitedGroups.add(anchor)
         record.visited = true
-        record.childScopeKeys.forEach { childScopeKey ->
-            retainScopeSubtree(childScopeKey)
+        record.childAnchors.forEach { childAnchor ->
+            retainGroupSubtree(childAnchor)
         }
     }
 
-    internal fun finishScope(scopeKey: ScopeKey, node: UiNode, childScopeKeys: List<ScopeKey>) {
-        val record = scopeRecords.getOrPut(scopeKey) {
-            ScopeRecord(scopeKey, parentScopeKey = null, childIndex = null)
-        }
+    internal fun finishGroup(anchor: GroupAnchor, node: UiNode, childAnchors: List<GroupAnchor>) {
+        val record = slotTable.group(anchor)
         val hadCachedNode = record.cachedNode != null
-        val previousChildScopeKeys = record.childScopeKeys
+        val previousChildAnchors = record.childAnchors
         record.cachedNode = node
         record.cachedNodeClass = node::class.java
-        record.childScopeKeys = childScopeKeys
-        if (hadCachedNode && previousChildScopeKeys != childScopeKeys) {
+        record.childAnchors = childAnchors
+        if (hadCachedNode && previousChildAnchors != childAnchors) {
             debugEvents.add(
-                "scope shape changed ${scopeKey.describe()} old=${buildScopeListDump(previousChildScopeKeys)} new=${buildScopeListDump(childScopeKeys)}"
+                "group shape changed ${describeGroup(anchor)} old=${buildGroupListDump(previousChildAnchors)} new=${buildGroupListDump(childAnchors)}"
             )
         }
-        dirtyScopes.remove(scopeKey)
+        dirtyGroups.remove(anchor)
     }
 
-    internal fun <T> remember(scopeKey: ScopeKey, slotIndex: Int, factory: () -> T): T {
-        val slots = slotTable.getOrPut(scopeKey) { mutableListOf() }
-        if (slotIndex < slots.size) {
+    internal fun <T> remember(groupAnchor: GroupAnchor, slotIndex: Int, factory: () -> T): T {
+        val group = slotTable.group(groupAnchor)
+        if (slotIndex < group.slots.size) {
             @Suppress("UNCHECKED_CAST")
-            return slots[slotIndex] as T
+            return group.slots[slotIndex] as T
         }
 
         val value = factory()
-        while (slots.size <= slotIndex) {
-            slots.add(null)
+        while (group.slots.size <= slotIndex) {
+            group.slots.add(null)
         }
-        slots[slotIndex] = value
+        group.slots[slotIndex] = value
         return value
     }
 
     internal fun invalidate(state: MutableState<*>) {
-        markDirtyScopes(stateToScopes[state].orEmpty())
+        markDirtyGroups(stateToGroups[state].orEmpty())
 
         if (dirty) {
             debugEvents.add(
-                "invalidate while dirty ${stateLabel(state)} dirtyScopes=${buildScopeListDump(dirtyScopes)}"
+                "invalidate while dirty ${stateLabel(state)} dirtyGroups=${buildGroupListDump(dirtyGroups)}"
             )
             return
         }
@@ -208,7 +199,7 @@ class RootComposition(
         dirty = true
         invalidationCount += 1
         debugEvents.add(
-            "invalidate #$invalidationCount ${stateLabel(state)} dirtyScopes=${buildScopeListDump(dirtyScopes)}"
+            "invalidate #$invalidationCount ${stateLabel(state)} dirtyGroups=${buildGroupListDump(dirtyGroups)}"
         )
         invalidationListeners.forEach { listener -> listener() }
     }
@@ -218,55 +209,81 @@ class RootComposition(
     }
 
     private fun beginPass() {
-        visitedScopes.clear()
-        scopeRecords.values.forEach { record ->
+        visitedGroups.clear()
+        slotTable.groups().forEach { record ->
             record.visited = false
         }
         if (recompositionCount == 0) {
-            dirtyScopes.add(ScopeKey.root)
+            dirtyGroups.add(slotTable.rootAnchor)
         }
     }
 
-    private fun pruneUnusedScopes() {
-        val removedScopes = scopeRecords.values.filterNot { it.visited }.map { it.scopeKey }
-        removedScopes.forEach { removedScope ->
-            val removedRecord = scopeRecords.remove(removedScope) ?: return@forEach
-            removedRecord.readStates.forEach { state ->
-                stateToScopes[state]?.remove(removedScope)
-                if (stateToScopes[state]?.isEmpty() == true) {
-                    stateToScopes.remove(state)
-                    state.removeObserver(this)
-                }
+    private fun pruneUnusedGroups() {
+        val removed = slotTable.groups()
+            .filter { it.anchor != slotTable.rootAnchor && !it.visited }
+            .map { it.anchor }
+
+        removed.forEach { removeGroupSubtree(it) }
+    }
+
+    private fun removeGroupSubtree(anchor: GroupAnchor) {
+        if (!slotTable.contains(anchor)) {
+            return
+        }
+
+        val removedGroup = slotTable.group(anchor)
+        removedGroup.childAnchors.toList().forEach { childAnchor ->
+            removeGroupSubtree(childAnchor)
+        }
+
+        removedGroup.observedStates.forEach { state ->
+            stateToGroups[state]?.remove(anchor)
+            if (stateToGroups[state]?.isEmpty() == true) {
+                stateToGroups.remove(state)
+                state.removeObserver(this)
             }
-            slotTable.remove(removedScope)
         }
-        slotTable.keys.retainAll(visitedScopes)
+
+        dirtyGroups.remove(anchor)
+        visitedGroups.remove(anchor)
+        slotTable.removeGroup(anchor)
     }
 
-    private fun buildScopeDump(): String {
-        if (scopeRecords.isEmpty()) {
+    private fun resetGroup(anchor: GroupAnchor, record: GroupRecord) {
+        record.childAnchors.toList().forEach { childAnchor ->
+            removeGroupSubtree(childAnchor)
+        }
+        clearObservedStates(anchor, record)
+        record.childAnchors = emptyList()
+        record.slots.clear()
+        record.cachedNode = null
+        record.cachedNodeClass = null
+    }
+
+    private fun buildGroupDump(): String {
+        val groups = slotTable.groups()
+        if (groups.isEmpty()) {
             return ""
         }
 
         return buildString {
-            scopeRecords.values.forEach { record ->
+            groups.forEach { record ->
                 append("  ")
-                append(record.scopeKey.describe())
+                append(describeGroup(record.anchor))
                 append(" parent=")
-                append(record.parentScopeKey?.describe() ?: "-")
+                append(record.parentAnchor?.let(::describeGroup) ?: "-")
                 append(" child=")
-                append(record.childIndex?.toString() ?: "-")
+                append(record.groupIndexInParent?.toString() ?: "-")
                 append(" shape=")
-                append(buildScopeListDump(record.childScopeKeys))
+                append(buildGroupListDump(record.childAnchors))
+                append(" slots=")
+                append(record.slots.size)
                 append(" reads=")
                 append(
-                    if (record.readStates.isEmpty()) {
+                    if (record.observedStates.isEmpty()) {
                         "[]"
                     } else {
-                        record.readStates.joinToString(
-                            prefix = "[",
-                            postfix = "]"
-                        ) { stateLabel(it) }
+                        record.observedStates.joinToString(prefix = "[", postfix = "]") { stateLabel(it) }
                     }
                 )
                 appendLine()
@@ -275,68 +292,79 @@ class RootComposition(
     }
 
     private fun buildDependencyDump(): String {
-        if (stateToScopes.isEmpty()) {
+        if (stateToGroups.isEmpty()) {
             return ""
         }
 
         return buildString {
-            stateToScopes.forEach { (state, scopes) ->
+            stateToGroups.forEach { (state, groups) ->
                 append("  ")
                 append(stateLabel(state))
                 append(" -> ")
-                append(
-                    scopes.joinToString(
-                        prefix = "[",
-                        postfix = "]"
-                    ) { it.describe() }
-                )
+                append(groups.joinToString(prefix = "[", postfix = "]") { describeGroup(it) })
                 appendLine()
-        }
+            }
         }.trimEnd()
     }
 
-    private fun buildScopeListDump(scopeKeys: Collection<ScopeKey>): String {
-        if (scopeKeys.isEmpty()) {
+    private fun buildGroupListDump(groupAnchors: Collection<GroupAnchor>): String {
+        if (groupAnchors.isEmpty()) {
             return "[]"
         }
 
-        return scopeKeys.joinToString(
-            prefix = "[",
-            postfix = "]"
-        ) { it.describe() }
+        return groupAnchors.joinToString(prefix = "[", postfix = "]") { describeGroup(it) }
     }
 
-    private fun markDirtyScopes(affectedScopes: Collection<ScopeKey>) {
-        dirtyScopes.add(ScopeKey.root)
-        affectedScopes.forEach { affectedScope ->
-            markDirtyScopeAndAncestors(affectedScope)
+    private fun markDirtyGroups(affectedGroups: Collection<GroupAnchor>) {
+        dirtyGroups.add(slotTable.rootAnchor)
+        affectedGroups.forEach { affectedGroup ->
+            markDirtyGroupAndAncestors(affectedGroup)
         }
-        lastDirtyScopeDump = buildScopeListDump(dirtyScopes)
+        lastDirtyGroupDump = buildGroupListDump(dirtyGroups)
     }
 
-    private fun markDirtyScopeAndAncestors(scopeKey: ScopeKey) {
-        var current: ScopeKey? = scopeKey
-        while (current != null) {
-            dirtyScopes.add(current)
-            current = scopeRecords[current]?.parentScopeKey
+    private fun markDirtyGroupAndAncestors(anchor: GroupAnchor) {
+        var current: GroupAnchor? = anchor
+        while (current != null && slotTable.contains(current)) {
+            dirtyGroups.add(current)
+            current = slotTable.group(current).parentAnchor
         }
     }
 
-    private fun isScopeDirty(scopeKey: ScopeKey): Boolean = dirtyScopes.contains(scopeKey)
+    private fun isGroupDirty(anchor: GroupAnchor): Boolean = dirtyGroups.contains(anchor)
 
-    private fun prepareScopeForRecomposition(scopeKey: ScopeKey, record: ScopeRecord) {
-        if (record.readStates.isEmpty()) {
+    private fun prepareGroupForRecomposition(anchor: GroupAnchor, record: GroupRecord) {
+        clearObservedStates(anchor, record)
+    }
+
+    private fun clearObservedStates(anchor: GroupAnchor, record: GroupRecord) {
+        if (record.observedStates.isEmpty()) {
             return
         }
 
-        record.readStates.forEach { state ->
-            stateToScopes[state]?.remove(scopeKey)
-            if (stateToScopes[state]?.isEmpty() == true) {
-                stateToScopes.remove(state)
+        record.observedStates.forEach { state ->
+            stateToGroups[state]?.remove(anchor)
+            if (stateToGroups[state]?.isEmpty() == true) {
+                stateToGroups.remove(state)
                 state.removeObserver(this)
             }
         }
-        record.readStates.clear()
+        record.observedStates.clear()
+    }
+
+    private fun describeGroup(anchor: GroupAnchor): String {
+        if (anchor == slotTable.rootAnchor) {
+            return "root"
+        }
+
+        val indices = mutableListOf<Int>()
+        var current: GroupAnchor? = anchor
+        while (current != null && current != slotTable.rootAnchor) {
+            val record = slotTable.group(current)
+            indices.add(record.groupIndexInParent ?: error("Missing group index for $current"))
+            current = record.parentAnchor
+        }
+        return indices.asReversed().joinToString(separator = "/")
     }
 
     private fun stateLabel(state: MutableState<*>): String {

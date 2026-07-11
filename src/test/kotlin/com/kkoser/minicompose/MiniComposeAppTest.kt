@@ -32,7 +32,7 @@ class MiniComposeAppTest {
         assertEquals(18, column.spacing)
         assertEquals(UiText("MiniCompose diagnostics"), column.children[0])
         assertEquals(UiText("Remembered build token: 1"), column.children[1])
-        assertEquals(UiText("Use the controls below to watch scope reuse in the debug panel."), column.children[2])
+        assertEquals(UiText("Use the controls below to watch group reuse in the debug panel."), column.children[2])
 
         val sharedStateSection = assertInstanceOf(UiColumn::class.java, column.children[3])
         assertEquals(4, sharedStateSection.children.size)

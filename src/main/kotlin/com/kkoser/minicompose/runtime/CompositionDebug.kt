@@ -4,9 +4,9 @@ data class CompositionDebugSnapshot(
     val recompositionCount: Int,
     val invalidationCount: Int,
     val lastTreeDump: String,
-    val scopeDump: String,
+    val groupDump: String,
     val dependencyDump: String,
-    val dirtyScopeDump: String,
+    val dirtyGroupDump: String,
     val events: List<String>
 )
 
