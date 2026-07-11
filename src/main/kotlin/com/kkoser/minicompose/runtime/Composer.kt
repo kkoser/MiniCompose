@@ -144,13 +144,29 @@ class Composer(
     }
 
     internal fun rootChildAnchors(): List<GroupAnchor> = frameStack.first.childAnchors.toList()
+
+    internal fun requireSingleRootNode(): UiNode {
+        val rootChildren = frameStack.first.children
+        return when (rootChildren.size) {
+            1 -> rootChildren.single()
+            0 -> error("Expected exactly one root node, but composableRoot emitted none")
+            else -> error("Expected exactly one root node, but composableRoot emitted ${rootChildren.size}")
+        }
+    }
 }
 
-fun compose(block: Composer.() -> UiNode): UiNode = Composer().block()
+fun compose(block: Composer.() -> UiNode): UiNode {
+    val composer = Composer()
+    return CompositionRuntime.withCurrentComposer(composer) {
+        composer.block()
+    }
+}
 
 internal fun compose(rootComposition: RootComposition, block: Composer.() -> UiNode): UiNode {
     val composer = Composer(rootComposition)
-    val node = composer.block()
+    val node = CompositionRuntime.withCurrentComposer(composer) {
+        composer.block()
+    }
     rootComposition.finishGroup(GroupAnchor(0), listOf(node), composer.rootChildAnchors())
     return node
 }
