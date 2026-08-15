@@ -1,20 +1,22 @@
 package com.kkoser.minicompose
 
+import com.kkoser.minicompose.annotations.MiniComposable
+import com.kkoser.minicompose.runtime.CompositionHostPanel
+import com.kkoser.minicompose.runtime.RootComposition
+import com.kkoser.minicompose.runtime.button
+import com.kkoser.minicompose.runtime.column
+import com.kkoser.minicompose.runtime.composableRoot
+import com.kkoser.minicompose.runtime.key
+import com.kkoser.minicompose.runtime.mutableStateOf
+import com.kkoser.minicompose.runtime.remember
+import com.kkoser.minicompose.runtime.row
+import com.kkoser.minicompose.runtime.text
+import com.kkoser.minicompose.ui.UiNode
 import java.awt.BorderLayout
 import javax.swing.BorderFactory
 import javax.swing.JFrame
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
-import com.kkoser.minicompose.runtime.Composer
-import com.kkoser.minicompose.runtime.CompositionHostPanel
-import com.kkoser.minicompose.runtime.RootComposition
-import com.kkoser.minicompose.runtime.mutableStateOf
-import com.kkoser.minicompose.runtime.button
-import com.kkoser.minicompose.runtime.column
-import com.kkoser.minicompose.runtime.remember
-import com.kkoser.minicompose.runtime.row
-import com.kkoser.minicompose.runtime.text
-import com.kkoser.minicompose.ui.UiNode
 
 object MiniComposeApp {
     private var rememberedBuildToken = 0
@@ -68,28 +70,40 @@ object MiniComposeApp {
         rootComposition = createRootComposition()
     }
 
-    private fun createRootComposition(): RootComposition {
-        return RootComposition {
-            buildDiagnosticsShowcase()
+    private fun createRootComposition(): RootComposition = composableRoot {
+        buildDiagnosticsShowcase()
+    }
+
+    @MiniComposable
+    private fun buildDiagnosticsShowcase() {
+        column(spacing = 18) {
+            val buildToken = remember { ++rememberedBuildToken }
+            val headlineState = remember { mutableStateOf(0) }
+            val siblingLeftState = remember { mutableStateOf(0) }
+            val siblingRightState = remember { mutableStateOf(0) }
+            val showTransientBranch = remember { mutableStateOf(true) }
+            val showAlternateLayout = remember { mutableStateOf(false) }
+            val layoutFlipCounter = remember { mutableStateOf(0) }
+            val showKeyedReverse = remember { mutableStateOf(false) }
+            val keyedFlipCounter = remember { mutableStateOf(0) }
+
+            text("MiniCompose diagnostics")
+            text("Remembered build token: $buildToken")
+            text("Use the controls below to watch group reuse in the debug panel.")
+
+            sharedParentStateSection(headlineState, siblingLeftState, siblingRightState)
+            hiddenBranchSection(showTransientBranch)
+            shapeSwapSection(showAlternateLayout, layoutFlipCounter)
+            keyedSection(showKeyedReverse, keyedFlipCounter)
         }
     }
 
-    private fun Composer.buildDiagnosticsShowcase() = column(spacing = 18) {
-        val buildToken = remember { ++rememberedBuildToken }
-        val headlineState = remember { mutableStateOf(0) }
-        val siblingLeftState = remember { mutableStateOf(0) }
-        val siblingRightState = remember { mutableStateOf(0) }
-        val showTransientBranch = remember { mutableStateOf(true) }
-        val transientCounter = remember { mutableStateOf(0) }
-        val showAlternateLayout = remember { mutableStateOf(false) }
-        val layoutFlipCounter = remember { mutableStateOf(0) }
-        val showKeyedReverse = remember { mutableStateOf(false) }
-        val keyedFlipCounter = remember { mutableStateOf(0) }
-
-        text("MiniCompose diagnostics")
-        text("Remembered build token: $buildToken")
-        text("Use the controls below to watch group reuse in the debug panel.")
-
+    @MiniComposable
+    private fun sharedParentStateSection(
+        headlineState: com.kkoser.minicompose.runtime.MutableState<Int>,
+        siblingLeftState: com.kkoser.minicompose.runtime.MutableState<Int>,
+        siblingRightState: com.kkoser.minicompose.runtime.MutableState<Int>
+    ) {
         column(spacing = 12) {
             text("1. Shared parent state with stable remembered siblings")
             text("Headline ticks: ${headlineState.value}")
@@ -118,7 +132,12 @@ object MiniComposeApp {
                 text("This invalidates the parent while keeping sibling remember slots stable.")
             }
         }
+    }
 
+    @MiniComposable
+    private fun hiddenBranchSection(
+        showTransientBranch: com.kkoser.minicompose.runtime.MutableState<Boolean>
+    ) {
         column(spacing = 12) {
             text("2. Hidden branch with remembered state")
             text("Branch visible: ${showTransientBranch.value}")
@@ -144,7 +163,13 @@ object MiniComposeApp {
                 }
             }
         }
+    }
 
+    @MiniComposable
+    private fun shapeSwapSection(
+        showAlternateLayout: com.kkoser.minicompose.runtime.MutableState<Boolean>,
+        layoutFlipCounter: com.kkoser.minicompose.runtime.MutableState<Int>
+    ) {
         column(spacing = 12) {
             text("3. Shape swap with nested remembered content")
             text("Alternate layout: ${showAlternateLayout.value}")
@@ -176,40 +201,22 @@ object MiniComposeApp {
                 text("Layout swaps: ${layoutFlipCounter.value}")
             }
         }
+    }
 
+    @MiniComposable
+    private fun keyedSection(
+        showKeyedReverse: com.kkoser.minicompose.runtime.MutableState<Boolean>,
+        keyedFlipCounter: com.kkoser.minicompose.runtime.MutableState<Int>
+    ) {
         column(spacing = 12) {
             text("4. Keyed reorder with preserved state")
             text("Keyed reverse: ${showKeyedReverse.value}")
             if (showKeyedReverse.value) {
-                key("beta") {
-                    column(spacing = 6) {
-                        val betaToken = remember { ++keyedBetaToken }
-                        text("Keyed beta token: $betaToken")
-                        text("Item: beta")
-                    }
-                }
-                key("alpha") {
-                    column(spacing = 6) {
-                        val alphaToken = remember { ++keyedAlphaToken }
-                        text("Keyed alpha token: $alphaToken")
-                        text("Item: alpha")
-                    }
-                }
+                keyedBeta()
+                keyedAlpha()
             } else {
-                key("alpha") {
-                    column(spacing = 6) {
-                        val alphaToken = remember { ++keyedAlphaToken }
-                        text("Keyed alpha token: $alphaToken")
-                        text("Item: alpha")
-                    }
-                }
-                key("beta") {
-                    column(spacing = 6) {
-                        val betaToken = remember { ++keyedBetaToken }
-                        text("Keyed beta token: $betaToken")
-                        text("Item: beta")
-                    }
-                }
+                keyedAlpha()
+                keyedBeta()
             }
             row(spacing = 12) {
                 button("Reverse keyed items") {
@@ -217,6 +224,28 @@ object MiniComposeApp {
                     keyedFlipCounter.value += 1
                 }
                 text("Keyed swaps: ${keyedFlipCounter.value}")
+            }
+        }
+    }
+
+    @MiniComposable
+    private fun keyedAlpha() {
+        key("alpha") {
+            column(spacing = 6) {
+                val alphaToken = remember { ++keyedAlphaToken }
+                text("Keyed alpha token: $alphaToken")
+                text("Item: alpha")
+            }
+        }
+    }
+
+    @MiniComposable
+    private fun keyedBeta() {
+        key("beta") {
+            column(spacing = 6) {
+                val betaToken = remember { ++keyedBetaToken }
+                text("Keyed beta token: $betaToken")
+                text("Item: beta")
             }
         }
     }

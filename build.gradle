@@ -1,13 +1,20 @@
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
 plugins {
     id 'application'
-    id 'org.jetbrains.kotlin.jvm' version '2.1.0'
+    id 'org.jetbrains.kotlin.jvm'
 }
 
-group = 'com.kkoser'
+group = 'com.kkoser.minicompose'
 version = '1.0-SNAPSHOT'
 
-repositories {
-    mavenCentral()
+allprojects {
+    group = rootProject.group
+    version = rootProject.version
+
+    repositories {
+        mavenCentral()
+    }
 }
 
 java {
@@ -25,9 +32,24 @@ application {
 }
 
 dependencies {
+    implementation project(':plugin-annotations')
+    testImplementation project(':plugin-annotations')
+
     testImplementation platform('org.junit:junit-bom:6.0.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+evaluationDependsOn(':compiler-plugin')
+
+def compilerPluginJar = project(':compiler-plugin').tasks.named('jar')
+def compilerPluginArg = compilerPluginJar.flatMap { it.archiveFile }.map { file ->
+    "-Xplugin=${file.asFile.absolutePath}"
+}
+
+tasks.withType(KotlinCompile).configureEach {
+    dependsOn(compilerPluginJar)
+    compilerOptions.freeCompilerArgs.add(compilerPluginArg)
 }
 
 tasks.test {

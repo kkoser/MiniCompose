@@ -1,1 +1,16 @@
+pluginManagement {
+    def kotlinVersion = providers.gradleProperty("kotlinVersion").get()
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+    plugins {
+        id 'org.jetbrains.kotlin.jvm' version kotlinVersion
+    }
+}
+
 rootProject.name = 'MiniCompose'
+
+include 'plugin-annotations'
+include 'compiler-plugin'
+include 'compiler-gradle-plugin'

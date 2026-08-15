@@ -7,6 +7,7 @@ import java.util.IdentityHashMap
 internal object CompositionRuntime {
     private val currentComposition = ThreadLocal<RootComposition?>()
     private val currentGroup = ThreadLocal<GroupAnchor?>()
+    private val currentComposer = ThreadLocal<Composer?>()
 
     fun <T> withCurrentComposition(composition: RootComposition, block: () -> T): T {
         val previous = currentComposition.get()
@@ -19,6 +20,18 @@ internal object CompositionRuntime {
     }
 
     fun currentComposition(): RootComposition? = currentComposition.get()
+
+    fun <T> withCurrentComposer(composer: Composer, block: () -> T): T {
+        val previous = currentComposer.get()
+        currentComposer.set(composer)
+        return try {
+            block()
+        } finally {
+            currentComposer.set(previous)
+        }
+    }
+
+    fun currentComposer(): Composer? = currentComposer.get()
 
     fun <T> withCurrentGroup(groupAnchor: GroupAnchor, block: () -> T): T {
         val previous = currentGroup.get()

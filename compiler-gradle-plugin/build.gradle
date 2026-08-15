@@ -1,0 +1,30 @@
+plugins {
+    id 'org.jetbrains.kotlin.jvm'
+    id 'java-gradle-plugin'
+}
+
+def kotlinVersion = providers.gradleProperty("kotlinVersion").get()
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+kotlin {
+    jvmToolchain(21)
+}
+
+dependencies {
+    implementation gradleApi()
+    implementation "org.jetbrains.kotlin:kotlin-gradle-plugin-api:${kotlinVersion}"
+}
+
+gradlePlugin {
+    plugins {
+        miniComposeCompiler {
+            id = 'com.kkoser.minicompose.compiler'
+            implementationClass = 'com.kkoser.minicompose.gradle.MiniComposeCompilerGradlePlugin'
+        }
+    }
+}
