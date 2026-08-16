@@ -59,11 +59,16 @@ Swing is the preferred host because it gives a visible UI with minimal platform 
    - Convert the runtime UI tree into Swing components
    - Update the visible UI from runtime output
 
-5. Layout primitives
+5. Retained rendering and layout
+   - Retain platform/render nodes across recompositions
+   - Apply localized structural and property updates
+   - Separate composition, layout, and drawing invalidation
+
+6. Layout primitives
    - Represent `Column` and `Row` in the UI tree
    - Keep layout intent explicit even if Swing performs the actual widget layout
 
-6. Debugging support
+7. Debugging support
    - Recomposition counters
    - Dirty-scope logs
    - Optional tree dumps
@@ -263,6 +268,46 @@ Why this is separate:
 - It is a major conceptual step beyond the teaching runtime
 - The explicit runtime model should be understood first so the plugin’s effect is obvious and educational
 
+### Phase 11: Retained Renderer and Swing Applier
+Purpose:
+Connect composition reuse to actual rendering work, so a skipped composition group also avoids rebuilding its Swing subtree.
+
+Planned work:
+- Replace the stateless whole-tree `SwingUiRenderer.render(...)` refresh path with a stateful Swing applier that retains `JComponent` instances.
+- Give renderer nodes stable identity from their composition group/anchor, initially for the supported static and keyed structures.
+- Apply localized insert, remove, move, and property-update operations to the retained Swing hierarchy.
+- Update text and button properties in place; replace event listeners safely when callbacks change.
+- Preserve component instances when a clean composition group is reused, including when a keyed child moves.
+- Keep a full-tree rebuild path as a correctness fallback while the applier contracts are being established.
+- Add instrumentation showing component creation, reuse, property updates, structural operations, `revalidate`, and `repaint` requests.
+
+Deliverable:
+- A counter or sibling-update demo proving that a state change updates only the affected Swing component subtree while clean sibling components retain object identity.
+
+Why this is separate:
+- The composer already demonstrates partial execution and cached `UiNode` output; this phase makes the renderer consume that reuse instead of discarding it with `removeAll()`.
+- It teaches Compose's applier-style retained-tree model without conflating it with custom layout.
+
+### Phase 12: Explicit Measure, Layout, and Draw Passes
+Purpose:
+Move from Swing-owned layout toward a small retained layout tree whose measure, placement, and drawing invalidation can be inspected independently.
+
+Planned work:
+- Introduce retained `LayoutNode` objects below the composition/applier boundary, with parent/child ownership and measured bounds.
+- Define minimal constraints, measurement, and placement contracts; start with `Text`, `Button`, `Column`, and `Row`.
+- Make `Column` and `Row` perform explicit measurement and placement rather than relying solely on `BoxLayout`.
+- Track invalidation categories separately: structural/composition, layout-affecting, and draw-only.
+- Propagate layout invalidation to the smallest required ancestor and draw invalidation to the smallest affected region.
+- Render the retained layout tree through a Swing-backed canvas or host component, while retaining native Swing controls only where that remains useful for the learning goal.
+- Add debug overlays or dumps for constraints, measured sizes, placement coordinates, and invalidation reasons.
+
+Deliverable:
+- A demo where text or spacing changes cause visible, measurable layout work only in the affected layout subtree, while draw-only changes avoid relayout.
+
+Why this is separate:
+- The retained Swing applier makes renderer mutations observable first; adding measurement and placement afterward keeps platform-node retention distinct from layout-algorithm design.
+- It creates a compact analogue of Compose's composition → layout → draw pipeline without attempting to reproduce all of Compose UI.
+
 ## Suggested Package Organization
 - `runtime`
   - composer/composition lifecycle
@@ -293,6 +338,9 @@ Why this is separate:
 - Verify compiler-generated call groups skip clean sibling functions, recompose when inputs change, preserve named-argument evaluation order, and close correctly after exceptions
 - Verify a separate consumer project can apply the compiler Gradle plugin and compile `@MiniComposable` code
 - Verify reusable layout nodes refresh when their layout inputs change
+- Verify the retained Swing applier preserves component identity for reused groups and updates only the affected properties or child range
+- Verify keyed moves preserve component identity and apply a move rather than remove-plus-insert where supported
+- Verify layout invalidation, measurement, placement, and drawing can be observed separately once explicit layout nodes exist
 - Verify any parallel composition experiment preserves correctness and fallback behavior
 
 ## Definition of Success
@@ -305,6 +353,8 @@ The project is successful if it becomes easy to explain and inspect:
 - how recomposition is scheduled
 - how scoped recomposition differs from full-root rerendering
 - how compiler-generated call groups turn `@MiniComposable` calls into explicit restart/skip decisions
+- how skipped/recomposed groups translate into retained-renderer operations
+- how composition, layout, and drawing work are invalidated independently
 
 ## Implementation Notes for Future Sessions
 - Keep milestones small and testable
