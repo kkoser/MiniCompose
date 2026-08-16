@@ -182,7 +182,11 @@ class RootComposition(
         }
     }
 
-    internal fun shouldReuseNodeGroup(anchor: GroupAnchor, expectedNodeClass: Class<out UiNode>): UiNode? {
+    internal fun shouldReuseNodeGroup(
+        anchor: GroupAnchor,
+        expectedNodeClass: Class<out UiNode>,
+        inputs: List<Any?>
+    ): UiNode? {
         val record = slotTable.group(anchor)
         if (record.cachedNodeClass != null && record.cachedNodeClass != expectedNodeClass) {
             resetGroup(anchor, record)
@@ -193,11 +197,17 @@ class RootComposition(
             return null
         }
 
-        return if (isGroupDirty(anchor) || !record.hasCachedOutput || record.cachedNodes.size != 1) {
-            null
-        } else {
-            record.cachedNodes.single()
+        if (isGroupDirty(anchor) || !record.hasCachedOutput || record.cachedNodes.size != 1) {
+            return null
         }
+
+        if (record.inputSignature != inputs) {
+            debugEvents.add("group inputs changed ${describeGroup(anchor)}")
+            return null
+        }
+
+        debugEvents.add("group inputs unchanged ${describeGroup(anchor)}")
+        return record.cachedNodes.single()
     }
 
     internal fun shouldReuseKeyedGroup(anchor: GroupAnchor): List<UiNode>? {
@@ -249,7 +259,7 @@ class RootComposition(
         record.cachedNodes = nodes
         record.cachedNodeClass = nodes.singleOrNull()?.let { it::class.java }
         record.childAnchors = childAnchors
-        if (record.kind == GroupKind.COMPOSABLE_CALL) {
+        if (record.kind != GroupKind.KEYED_INLINE) {
             record.inputSignature = inputSignature ?: emptyList()
         }
         if (hadCachedNode && previousChildAnchors != childAnchors) {

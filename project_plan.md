@@ -14,9 +14,9 @@ Build a small Compose-like runtime in Kotlin/JVM as a learning project. The purp
 - UI host: Swing
 - Build: Gradle
 - JDK target: 21
-- Repo structure: single module initially
+- Repo structure: runtime/demo application plus small annotation, compiler-plugin, and Gradle-plugin modules
 
-Swing is the preferred host because it gives a visible UI with minimal platform overhead. The repo should stay single-module at first so the focus stays on runtime behavior rather than project structure.
+Swing is the preferred host because it gives a visible UI with minimal platform overhead. The runtime and demo stay compact so the focus remains on behavior rather than project structure; the compiler experiment is isolated in its own modules.
 
 ## Scope for the First Learning Version
 - `Text`
@@ -31,8 +31,6 @@ Swing is the preferred host because it gives a visible UI with minimal platform 
 - minimal debugging visibility
 
 ## Non-Goals for V1
-- No compiler plugin
-- No real `@Composable` transformation
 - No modifiers chain
 - No effects API
 - No theming system
@@ -71,7 +69,7 @@ Swing is the preferred host because it gives a visible UI with minimal platform 
    - Optional tree dumps
 
 ## API Direction
-The first version should not pretend to be real Compose syntax. Because there is no compiler plugin, the runtime API should stay explicit and teachable.
+The original teaching API stays explicit and inspectable. The compiler-plugin experiment is a later layer that lowers `@MiniComposable` syntax into the same runtime mechanics, rather than replacing the runtime with hidden magic.
 
 Planned shape:
 - Root execution through a render/composition entrypoint
@@ -221,6 +219,9 @@ Why this is separate:
 Purpose:
 Explore whether independent parts of the tree can be composed concurrently without obscuring the runtime model.
 
+Status:
+Deferred until the single-threaded compiler-plugin semantics, group identity rules, and cache-reuse contracts are fully documented and tested.
+
 Planned work:
 - Identify safe boundaries for parallel execution of independent scopes
 - Experiment with scheduling scope recomposition work across threads or tasks
@@ -244,12 +245,16 @@ Current progress:
 - Call-group `remember` slots and state reads are isolated from their parent scope.
 - Generated cleanup uses `try`/`finally`, and lowering preserves named-argument evaluation order.
 - Repeated callsites currently use call-order identity; callers use `key(...)` when they need identity to survive reordering.
+- Reusable `Text`, `Button`, `Column`, and `Row` groups capture their inputs, so cached nodes refresh when text, callbacks, or spacing change.
 
 Remaining work:
-- Extend input comparison to every reusable runtime node group, beginning with `Column` and `Row` spacing, so cached layout nodes cannot retain stale arguments.
 - Model restartable and skippable groups more explicitly in debug output and tests.
-- Revisit `remember`, keys, and scope identity to match Compose behavior more closely.
-- Compare the explicit runtime behavior with Compose semantics to highlight what changes and why.
+- Define and document the supported compiler-lowering boundary: direct calls are supported today; function references, indirect calls, and more advanced dispatch cases need either explicit support or diagnostics.
+- Add a separate compiler-plugin consumer fixture that applies the Gradle plugin normally, so plugin integration is tested independently from this repository's manual `-Xplugin` wiring.
+- Revisit `remember`, keys, and scope identity to match Compose behavior more closely, including structural changes, loop/reorder behavior, and the role of explicit `key(...)`.
+- Replace the current all-input equality comparison with a small, inspectable changed/stability model. Start with visible changed flags or stable/unstable categories before considering Compose-style bit masks or inference.
+- Add comparison demos and documentation that show the explicit API, the generated call-group form, and the corresponding Compose concept; record deliberate differences and unsupported behavior.
+- Only revisit parallel composition after these semantics are stable, deterministic, and measurable in the single-threaded runtime.
 
 Deliverable:
 - A prototype that shows how a compiler plugin changes callsite lowering and recomposition behavior compared with the explicit runtime version
@@ -270,6 +275,12 @@ Why this is separate:
 - `demo`
   - entrypoint
   - sample screens used to learn and verify behavior
+- `plugin-annotations`
+  - `@MiniComposable` marker annotation
+- `compiler-plugin`
+  - IR validation and callsite lowering
+- `compiler-gradle-plugin`
+  - Gradle integration for consumer builds
 
 ## Testing Strategy
 - Verify manual UI tree rendering independently from composition
@@ -279,6 +290,9 @@ Why this is separate:
 - Verify button clicks trigger state changes and rerendering
 - Verify scoped recomposition skips unaffected siblings in supported cases
 - Verify slot-table reuse still preserves remembered values in stable scopes
+- Verify compiler-generated call groups skip clean sibling functions, recompose when inputs change, preserve named-argument evaluation order, and close correctly after exceptions
+- Verify a separate consumer project can apply the compiler Gradle plugin and compile `@MiniComposable` code
+- Verify reusable layout nodes refresh when their layout inputs change
 - Verify any parallel composition experiment preserves correctness and fallback behavior
 
 ## Definition of Success
@@ -290,6 +304,7 @@ The project is successful if it becomes easy to explain and inspect:
 - how `remember` stores and restores values
 - how recomposition is scheduled
 - how scoped recomposition differs from full-root rerendering
+- how compiler-generated call groups turn `@MiniComposable` calls into explicit restart/skip decisions
 
 ## Implementation Notes for Future Sessions
 - Keep milestones small and testable

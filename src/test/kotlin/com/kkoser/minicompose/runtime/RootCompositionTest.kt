@@ -2,6 +2,7 @@ package com.kkoser.minicompose.runtime
 
 import com.kkoser.minicompose.ui.UiButton
 import com.kkoser.minicompose.ui.UiColumn
+import com.kkoser.minicompose.ui.UiRow
 import com.kkoser.minicompose.ui.UiText
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -12,6 +13,72 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
 class RootCompositionTest {
+    @Test
+    fun `reusable node groups compare every node input`() {
+        val parentTick = mutableStateOf(0)
+        val spacing = mutableStateOf(0)
+        val rowSpacing = mutableStateOf(0)
+        val dynamicText = mutableStateOf("Initial")
+        val buttonLabel = mutableStateOf("Initial action")
+        var callback: () -> Unit = {}
+
+        val composition = RootComposition {
+            column {
+                text("Parent: ${parentTick.value}")
+                column(spacing = spacing.value) {
+                    text("Nested")
+                }
+                row(spacing = rowSpacing.value) {
+                    text("Row child")
+                }
+                text(dynamicText.value)
+                button(buttonLabel.value, callback)
+            }
+        }
+
+        val initial = composition.recompose() as UiColumn
+        val initialNested = initial.children[1] as UiColumn
+        val initialRow = initial.children[2] as UiRow
+        val initialText = initial.children[3] as UiText
+        val initialButton = initial.children[4] as UiButton
+
+        parentTick.value = 1
+        val unchangedInputs = composition.recompose() as UiColumn
+        assertSame(initialNested, unchangedInputs.children[1])
+        assertSame(initialRow, unchangedInputs.children[2])
+        assertSame(initialText, unchangedInputs.children[3])
+        assertSame(initialButton, unchangedInputs.children[4])
+
+        spacing.value = 8
+        val changedSpacing = composition.recompose() as UiColumn
+        val updatedNested = changedSpacing.children[1] as UiColumn
+        assertNotSame(initialNested, updatedNested)
+        assertEquals(8, updatedNested.spacing)
+
+        rowSpacing.value = 6
+        val changedRowSpacing = composition.recompose() as UiColumn
+        val updatedRow = changedRowSpacing.children[2] as UiRow
+        assertNotSame(initialRow, updatedRow)
+        assertEquals(6, updatedRow.spacing)
+
+        dynamicText.value = "Updated"
+        val changedText = composition.recompose() as UiColumn
+        val updatedText = changedText.children[3] as UiText
+        assertNotSame(initialText, updatedText)
+        assertEquals("Updated", updatedText.text)
+
+        buttonLabel.value = "Updated action"
+        val changedLabel = composition.recompose() as UiColumn
+        val updatedButton = changedLabel.children[4] as UiButton
+        assertNotSame(initialButton, updatedButton)
+        assertEquals("Updated action", updatedButton.text)
+
+        callback = {}
+        parentTick.value = 2
+        val changedCallback = composition.recompose() as UiColumn
+        assertNotSame(updatedButton, changedCallback.children[4])
+    }
+
     @Test
     fun `recomposition rebuilds the full tree from the latest state`() {
         val count = mutableStateOf(0)

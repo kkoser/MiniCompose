@@ -38,6 +38,7 @@ class Composer(
 
     internal fun <T : UiNode> emit(
         expectedNodeClass: Class<out UiNode>,
+        inputs: List<Any?>,
         factory: () -> T
     ): T {
         val parentFrame = currentFrame()
@@ -46,29 +47,7 @@ class Composer(
         val groupAnchor = rootComposition?.resolveChildGroup(parentFrame.groupAnchor, groupIndex)
             ?: parentFrame.groupAnchor
 
-        rootComposition?.shouldReuseNodeGroup(groupAnchor, expectedNodeClass)
-        rootComposition?.enterGroup(groupAnchor, parentFrame.groupAnchor, groupIndex, forceCompose = true)
-        val node = CompositionRuntime.withCurrentGroup(groupAnchor) {
-            factory()
-        }
-        rootComposition?.finishGroup(groupAnchor, listOf(node), childAnchors = emptyList())
-        parentFrame.children.add(node)
-        parentFrame.childAnchors.add(groupAnchor)
-        return node
-    }
-
-    internal fun <T : UiNode> emitContainer(
-        expectedNodeClass: Class<out UiNode>,
-        factory: (List<UiNode>) -> T,
-        content: Composer.() -> Unit
-    ): T {
-        val parentFrame = currentFrame()
-        val groupIndex = parentFrame.nextGroupIndex
-        parentFrame.nextGroupIndex += 1
-        val groupAnchor = rootComposition?.resolveChildGroup(parentFrame.groupAnchor, groupIndex)
-            ?: parentFrame.groupAnchor
-
-        val reusableNode = rootComposition?.shouldReuseNodeGroup(groupAnchor, expectedNodeClass)
+        val reusableNode = rootComposition?.shouldReuseNodeGroup(groupAnchor, expectedNodeClass, inputs)
         if (reusableNode != null) {
             rootComposition.enterGroup(groupAnchor, parentFrame.groupAnchor, groupIndex)
             rootComposition.retainGroupSubtree(groupAnchor)
@@ -79,7 +58,40 @@ class Composer(
             return reused
         }
 
-        rootComposition?.enterGroup(groupAnchor, parentFrame.groupAnchor, groupIndex)
+        rootComposition?.enterGroup(groupAnchor, parentFrame.groupAnchor, groupIndex, forceCompose = true)
+        val node = CompositionRuntime.withCurrentGroup(groupAnchor) {
+            factory()
+        }
+        rootComposition?.finishGroup(groupAnchor, listOf(node), childAnchors = emptyList(), inputSignature = inputs)
+        parentFrame.children.add(node)
+        parentFrame.childAnchors.add(groupAnchor)
+        return node
+    }
+
+    internal fun <T : UiNode> emitContainer(
+        expectedNodeClass: Class<out UiNode>,
+        inputs: List<Any?>,
+        factory: (List<UiNode>) -> T,
+        content: Composer.() -> Unit
+    ): T {
+        val parentFrame = currentFrame()
+        val groupIndex = parentFrame.nextGroupIndex
+        parentFrame.nextGroupIndex += 1
+        val groupAnchor = rootComposition?.resolveChildGroup(parentFrame.groupAnchor, groupIndex)
+            ?: parentFrame.groupAnchor
+
+        val reusableNode = rootComposition?.shouldReuseNodeGroup(groupAnchor, expectedNodeClass, inputs)
+        if (reusableNode != null) {
+            rootComposition.enterGroup(groupAnchor, parentFrame.groupAnchor, groupIndex)
+            rootComposition.retainGroupSubtree(groupAnchor)
+            @Suppress("UNCHECKED_CAST")
+            val reused = reusableNode as T
+            parentFrame.children.add(reused)
+            parentFrame.childAnchors.add(groupAnchor)
+            return reused
+        }
+
+        rootComposition?.enterGroup(groupAnchor, parentFrame.groupAnchor, groupIndex, forceCompose = true)
 
         frameStack.addLast(Frame(groupAnchor))
         val children: List<UiNode>
@@ -96,7 +108,7 @@ class Composer(
         }
 
         val node = factory(children)
-        rootComposition?.finishGroup(groupAnchor, listOf(node), childAnchors)
+        rootComposition?.finishGroup(groupAnchor, listOf(node), childAnchors, inputs)
         parentFrame.children.add(node)
         parentFrame.childAnchors.add(groupAnchor)
         return node
@@ -231,19 +243,19 @@ internal fun compose(rootComposition: RootComposition, block: Composer.() -> UiN
     return node
 }
 
-fun Composer.text(text: String): UiText = emit(UiText::class.java) { UiText(text) }
+fun Composer.text(text: String): UiText = emit(UiText::class.java, listOf(text)) { UiText(text) }
 
 fun Composer.button(text: String, onClick: () -> Unit): UiButton =
-    emit(UiButton::class.java) { UiButton(text, onClick) }
+    emit(UiButton::class.java, listOf(text, onClick)) { UiButton(text, onClick) }
 
 fun Composer.column(
     spacing: Int = 0,
     content: Composer.() -> Unit
-): UiColumn = emitContainer(UiColumn::class.java, { children -> UiColumn(children, spacing) }, content)
+): UiColumn = emitContainer(UiColumn::class.java, listOf(spacing), { children -> UiColumn(children, spacing) }, content)
 
 fun Composer.row(
     spacing: Int = 0,
     content: Composer.() -> Unit
-): UiRow = emitContainer(UiRow::class.java, { children -> UiRow(children, spacing) }, content)
+): UiRow = emitContainer(UiRow::class.java, listOf(spacing), { children -> UiRow(children, spacing) }, content)
 
 fun <T> Composer.remember(factory: () -> T): T = rememberValue(factory)
