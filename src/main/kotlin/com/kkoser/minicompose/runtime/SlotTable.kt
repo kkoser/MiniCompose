@@ -16,6 +16,7 @@ internal data class KeySignature(val values: List<Any?>) {
 
 internal enum class GroupKind {
     NODE,
+    COMPOSABLE_CALL,
     KEYED_INLINE
 }
 
@@ -32,6 +33,7 @@ internal data class GroupRecord(
     var hasCachedOutput: Boolean = false,
     var cachedNodes: List<UiNode> = emptyList(),
     var cachedNodeClass: Class<out UiNode>? = null,
+    var inputSignature: List<Any?>? = null,
     val keyedChildAnchors: MutableMap<KeySignature, GroupAnchor> = linkedMapOf()
 )
 

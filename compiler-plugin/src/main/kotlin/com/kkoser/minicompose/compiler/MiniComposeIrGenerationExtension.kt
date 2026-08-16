@@ -8,6 +8,12 @@ import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.builders.irCall
+import org.jetbrains.kotlin.ir.builders.irBlock
+import org.jetbrains.kotlin.ir.builders.irGet
+import org.jetbrains.kotlin.ir.builders.irIfThen
+import org.jetbrains.kotlin.ir.builders.irTemporary
+import org.jetbrains.kotlin.ir.builders.irTry
+import org.jetbrains.kotlin.ir.builders.irVararg
 import org.jetbrains.kotlin.ir.declarations.IrModuleFragment
 import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
 import org.jetbrains.kotlin.ir.expressions.IrCall
@@ -77,8 +83,13 @@ private class MiniComposeCallLowering(
     private val symbols: MiniComposeSymbols,
     private val pluginContext: IrPluginContext
 ) : IrElementTransformerVoidWithContext() {
+    @OptIn(UnsafeDuringIrConstructionAPI::class)
     override fun visitCall(expression: IrCall): IrExpression {
         expression.transformChildren(this, null)
+
+        if (expression.symbol.owner.hasAnnotation(MINI_COMPOSABLE_FQ_NAME)) {
+            return rewriteComposableCall(expression)
+        }
 
         val replacementSymbol = when (expression.symbol) {
             symbols.sourceText -> symbols.emitText
@@ -91,6 +102,67 @@ private class MiniComposeCallLowering(
         } ?: return expression
 
         return rewriteCall(expression, replacementSymbol)
+    }
+
+    @OptIn(UnsafeDuringIrConstructionAPI::class)
+    private fun rewriteComposableCall(source: IrCall): IrExpression {
+        val builder = DeclarationIrBuilder(
+            pluginContext,
+            currentScope!!.scope.scopeOwnerSymbol,
+            source.startOffset,
+            source.endOffset
+        )
+
+        return builder.irBlock(resultType = source.type) {
+            val inputs = mutableListOf<IrExpression>()
+            val dispatchReceiverVariable = source.dispatchReceiver?.let { receiver ->
+                irTemporary(receiver, "miniComposeDispatchReceiver").also { temporary ->
+                    inputs += builder.irGet(temporary)
+                }
+            }
+            val extensionReceiverVariable = source.extensionReceiver?.let { receiver ->
+                irTemporary(receiver, "miniComposeExtensionReceiver").also { temporary ->
+                    inputs += builder.irGet(temporary)
+                }
+            }
+            val arguments = mutableMapOf<Int, org.jetbrains.kotlin.ir.declarations.IrVariable>()
+            source.symbol.owner.valueParameters.indices
+                .mapNotNull { index -> source.getValueArgument(index)?.let { index to it } }
+                .sortedWith(compareBy({ (_, argument) -> argument.startOffset }, { (index, _) -> index }))
+                .forEach { (index, argument) ->
+                    val temporary = irTemporary(argument, "miniComposeArgument$index")
+                    arguments[index] = temporary
+                    inputs += builder.irGet(temporary)
+                }
+
+            val originalCall = builder.irCall(source.symbol, source.type).apply {
+                this.dispatchReceiver = dispatchReceiverVariable?.let(builder::irGet)
+                this.extensionReceiver = extensionReceiverVariable?.let(builder::irGet)
+                for (index in 0 until source.typeArgumentsCount) {
+                    putTypeArgument(index, source.getTypeArgument(index))
+                }
+                source.symbol.owner.valueParameters.indices.forEach { index ->
+                    putValueArgument(index, arguments[index]?.let(builder::irGet))
+                }
+            }
+
+            val composer = builder.irCall(symbols.currentComposer)
+            val shouldCompose = builder.irCall(symbols.beginComposableCall).apply {
+                putValueArgument(0, composer)
+                putValueArgument(1, builder.irVararg(pluginContext.irBuiltIns.anyNType, inputs))
+            }
+            +builder.irIfThen(pluginContext.irBuiltIns.unitType, shouldCompose, builder.irBlock {
+                val endCall = builder.irCall(symbols.endComposableCall).apply {
+                    putValueArgument(0, builder.irCall(symbols.currentComposer))
+                }
+                +builder.irTry(
+                    pluginContext.irBuiltIns.unitType,
+                    originalCall,
+                    emptyList(),
+                    endCall
+                )
+            })
+        }
     }
 
     @OptIn(UnsafeDuringIrConstructionAPI::class)
@@ -157,6 +229,12 @@ private class MiniComposeSymbols(
     }
     val emitKey = referenceFunction(pluginContext, "emitKey") { function ->
         function.valueParameters.size == 3 && function.valueParameters[1].varargElementType != null
+    }
+    val beginComposableCall = referenceFunction(pluginContext, "beginComposableCall") { function ->
+        function.valueParameters.size == 2
+    }
+    val endComposableCall = referenceFunction(pluginContext, "endComposableCall") { function ->
+        function.valueParameters.size == 1
     }
 
     @OptIn(UnsafeDuringIrConstructionAPI::class)

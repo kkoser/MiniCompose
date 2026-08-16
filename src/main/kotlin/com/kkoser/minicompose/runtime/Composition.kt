@@ -44,6 +44,16 @@ internal object CompositionRuntime {
     }
 
     fun currentGroup(): GroupAnchor? = currentGroup.get()
+
+    fun replaceCurrentGroup(groupAnchor: GroupAnchor): GroupAnchor? {
+        val previous = currentGroup.get()
+        currentGroup.set(groupAnchor)
+        return previous
+    }
+
+    fun restoreCurrentGroup(groupAnchor: GroupAnchor?) {
+        currentGroup.set(groupAnchor)
+    }
 }
 
 class RootComposition(
@@ -114,17 +124,28 @@ class RootComposition(
         stateToGroups.getOrPut(state) { linkedSetOf() }.add(groupAnchor)
     }
 
-    internal fun resolveChildGroup(parentAnchor: GroupAnchor, groupIndex: Int): GroupAnchor {
+    internal fun resolveChildGroup(
+        parentAnchor: GroupAnchor,
+        groupIndex: Int,
+        expectedKind: GroupKind = GroupKind.NODE
+    ): GroupAnchor {
         val parentRecord = slotTable.group(parentAnchor)
         val existing = parentRecord.childAnchors.getOrNull(groupIndex)
         if (existing != null && slotTable.contains(existing)) {
             val record = slotTable.group(existing)
+            if (record.kind != expectedKind) {
+                resetGroup(existing, record)
+                record.kind = expectedKind
+                record.keySignature = null
+            }
             record.parentAnchor = parentAnchor
             record.groupIndexInParent = groupIndex
             return existing
         }
 
-        return slotTable.createGroup(parentAnchor, groupIndex)
+        return slotTable.createGroup(parentAnchor, groupIndex).also { anchor ->
+            slotTable.group(anchor).kind = expectedKind
+        }
     }
 
     internal fun resolveKeyedGroup(parentAnchor: GroupAnchor, keySignature: KeySignature): GroupAnchor {
@@ -188,6 +209,22 @@ class RootComposition(
         }
     }
 
+    internal fun shouldReuseComposableCallGroup(anchor: GroupAnchor, inputs: List<Any?>): Boolean {
+        val record = slotTable.group(anchor)
+        if (isGroupDirty(anchor) || !record.hasCachedOutput) {
+            return false
+        }
+
+        val previousInputs = record.inputSignature ?: return false
+        if (previousInputs != inputs) {
+            debugEvents.add("group inputs changed ${describeGroup(anchor)}")
+            return false
+        }
+
+        debugEvents.add("group inputs unchanged ${describeGroup(anchor)}")
+        return true
+    }
+
     internal fun retainGroupSubtree(anchor: GroupAnchor) {
         val record = slotTable.group(anchor)
         visitedGroups.add(anchor)
@@ -197,7 +234,14 @@ class RootComposition(
         }
     }
 
-    internal fun finishGroup(anchor: GroupAnchor, nodes: List<UiNode>, childAnchors: List<GroupAnchor>) {
+    internal fun cachedNodes(anchor: GroupAnchor): List<UiNode> = slotTable.group(anchor).cachedNodes
+
+    internal fun finishGroup(
+        anchor: GroupAnchor,
+        nodes: List<UiNode>,
+        childAnchors: List<GroupAnchor>,
+        inputSignature: List<Any?>? = null
+    ) {
         val record = slotTable.group(anchor)
         val hadCachedNode = record.hasCachedOutput
         val previousChildAnchors = record.childAnchors
@@ -205,6 +249,9 @@ class RootComposition(
         record.cachedNodes = nodes
         record.cachedNodeClass = nodes.singleOrNull()?.let { it::class.java }
         record.childAnchors = childAnchors
+        if (record.kind == GroupKind.COMPOSABLE_CALL) {
+            record.inputSignature = inputSignature ?: emptyList()
+        }
         if (hadCachedNode && previousChildAnchors != childAnchors) {
             debugEvents.add(
                 "group shape changed ${describeGroup(anchor)} old=${buildGroupListDump(previousChildAnchors)} new=${buildGroupListDump(childAnchors)}"
@@ -301,6 +348,7 @@ class RootComposition(
         record.hasCachedOutput = false
         record.cachedNodes = emptyList()
         record.cachedNodeClass = null
+        record.inputSignature = null
     }
 
     private fun buildGroupDump(): String {
@@ -322,6 +370,10 @@ class RootComposition(
                 record.keySignature?.let { keySignature ->
                     append(" key=")
                     append(keySignature.describe())
+                }
+                record.inputSignature?.let { inputs ->
+                    append(" inputs=")
+                    append(inputs)
                 }
                 append(" shape=")
                 append(buildGroupListDump(record.childAnchors))

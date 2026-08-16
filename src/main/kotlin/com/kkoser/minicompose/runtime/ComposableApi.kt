@@ -36,6 +36,15 @@ fun emitKey(
     composer.key(*keys) { content() }
 }
 
+fun beginComposableCall(
+    composer: Composer,
+    inputs: Array<out Any?>
+): Boolean = composer.beginComposableCall(inputs.toList())
+
+fun endComposableCall(composer: Composer) {
+    composer.endComposableCall()
+}
+
 fun text(text: String): UiText = emitText(currentComposer(), text)
 
 fun button(text: String, onClick: () -> Unit): UiButton =

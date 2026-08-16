@@ -21,6 +21,15 @@ class Composer(
 
     private val frameStack = ArrayDeque<Frame>()
 
+    private data class ActiveComposableCall(
+        val groupAnchor: GroupAnchor,
+        val parentFrame: Frame,
+        val inputs: List<Any?>,
+        val previousRuntimeGroup: GroupAnchor?
+    )
+
+    private val activeComposableCalls = ArrayDeque<ActiveComposableCall>()
+
     init {
         frameStack.addLast(Frame(GroupAnchor(0)))
     }
@@ -133,6 +142,57 @@ class Composer(
         rootComposition?.finishGroup(groupAnchor, childOutputs, childAnchors)
         parentFrame.children.addAll(childOutputs)
         parentFrame.childAnchors.add(groupAnchor)
+    }
+
+    internal fun beginComposableCall(inputs: List<Any?>): Boolean {
+        val parentFrame = currentFrame()
+        val groupIndex = parentFrame.nextGroupIndex
+        parentFrame.nextGroupIndex += 1
+        val groupAnchor = rootComposition?.resolveChildGroup(
+            parentFrame.groupAnchor,
+            groupIndex,
+            GroupKind.COMPOSABLE_CALL
+        ) ?: parentFrame.groupAnchor
+
+        if (rootComposition?.shouldReuseComposableCallGroup(groupAnchor, inputs) == true) {
+            rootComposition.enterGroup(groupAnchor, parentFrame.groupAnchor, groupIndex)
+            rootComposition.retainGroupSubtree(groupAnchor)
+            val nodes = requireNotNull(rootComposition).cachedNodes(groupAnchor)
+            parentFrame.children.addAll(nodes)
+            parentFrame.childAnchors.add(groupAnchor)
+            return false
+        }
+
+        rootComposition?.enterGroup(groupAnchor, parentFrame.groupAnchor, groupIndex, forceCompose = true)
+        frameStack.addLast(Frame(groupAnchor))
+        activeComposableCalls.addLast(
+            ActiveComposableCall(
+                groupAnchor = groupAnchor,
+                parentFrame = parentFrame,
+                inputs = inputs,
+                previousRuntimeGroup = CompositionRuntime.replaceCurrentGroup(groupAnchor)
+            )
+        )
+        return true
+    }
+
+    internal fun endComposableCall() {
+        check(activeComposableCalls.isNotEmpty()) { "No composable call is active" }
+        val activeCall = activeComposableCalls.removeLast()
+        val childOutputs: List<UiNode>
+        val childAnchors: List<GroupAnchor>
+        try {
+            val frame = currentFrame()
+            childOutputs = frame.children.toList()
+            childAnchors = frame.childAnchors.toList()
+        } finally {
+            frameStack.removeLast()
+            CompositionRuntime.restoreCurrentGroup(activeCall.previousRuntimeGroup)
+        }
+
+        rootComposition?.finishGroup(activeCall.groupAnchor, childOutputs, childAnchors, activeCall.inputs)
+        activeCall.parentFrame.children.addAll(childOutputs)
+        activeCall.parentFrame.childAnchors.add(activeCall.groupAnchor)
     }
 
     internal fun <T> rememberValue(factory: () -> T): T {

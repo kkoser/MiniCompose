@@ -238,11 +238,18 @@ Why this is separate:
 Purpose:
 Move beyond the explicit teaching API and explore how a compiler plugin changes the runtime model and bring the behavior closer to real Compose in a controlled major step.
 
-Planned work:
-- Introduce a Kotlin compiler-plugin or codegen-based experiment for `@Composable`-style callsites
-- Model restartable and skippable groups more explicitly
-- Revisit `remember`, keys, and scope identity to match Compose behavior more closely
-- Compare the explicit runtime behavior with Compose semantics to highlight what changes and why
+Current progress:
+- A Kotlin compiler-plugin lowers the primitive API to composer-aware runtime calls.
+- `@MiniComposable` callsites now lower to explicit runtime call groups that capture inputs, retain cached output, and skip clean function bodies.
+- Call-group `remember` slots and state reads are isolated from their parent scope.
+- Generated cleanup uses `try`/`finally`, and lowering preserves named-argument evaluation order.
+- Repeated callsites currently use call-order identity; callers use `key(...)` when they need identity to survive reordering.
+
+Remaining work:
+- Extend input comparison to every reusable runtime node group, beginning with `Column` and `Row` spacing, so cached layout nodes cannot retain stale arguments.
+- Model restartable and skippable groups more explicitly in debug output and tests.
+- Revisit `remember`, keys, and scope identity to match Compose behavior more closely.
+- Compare the explicit runtime behavior with Compose semantics to highlight what changes and why.
 
 Deliverable:
 - A prototype that shows how a compiler plugin changes callsite lowering and recomposition behavior compared with the explicit runtime version
