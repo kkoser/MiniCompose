@@ -4,6 +4,7 @@ import com.kkoser.minicompose.ui.SwingUiRenderer
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.Font
+import java.util.Locale
 import javax.swing.BorderFactory
 import javax.swing.JLabel
 import javax.swing.JScrollPane
@@ -64,7 +65,7 @@ class CompositionHostPanel(
 
     private fun updateDebugPanel() {
         val snapshot = composition.debugSnapshot()
-        debugSummary.text = "recompositions=${snapshot.recompositionCount}, invalidations=${snapshot.invalidationCount}"
+        debugSummary.text = buildDebugSummary(snapshot)
         debugDump.text = buildString {
             appendLine("Tree")
             appendLine(snapshot.lastTreeDump)
@@ -87,4 +88,24 @@ class CompositionHostPanel(
         }
         debugDump.caretPosition = 0
     }
+
+    private fun buildDebugSummary(snapshot: CompositionDebugSnapshot): String {
+        val rebuiltPercent = if (snapshot.totalNodeCount == 0) {
+            0.0
+        } else {
+            snapshot.rebuiltNodeCount * 100.0 / snapshot.totalNodeCount
+        }
+        val baselineRatio = if (snapshot.baselineCompositionDurationNanos == 0L) {
+            0.0
+        } else {
+            snapshot.lastCompositionDurationNanos.toDouble() / snapshot.baselineCompositionDurationNanos
+        }
+        return "recompositions=${snapshot.recompositionCount}, invalidations=${snapshot.invalidationCount} | " +
+            "cost: ${formatMillis(snapshot.lastCompositionDurationNanos)} ms (${formatRatio(baselineRatio)} baseline), " +
+            "new UI nodes=${snapshot.rebuiltNodeCount}/${snapshot.totalNodeCount} (${String.format(Locale.ROOT, "%.0f", rebuiltPercent)}%)"
+    }
+
+    private fun formatMillis(nanos: Long): String = String.format(Locale.ROOT, "%.2f", nanos / 1_000_000.0)
+
+    private fun formatRatio(ratio: Double): String = String.format(Locale.ROOT, "%.2fx", ratio)
 }

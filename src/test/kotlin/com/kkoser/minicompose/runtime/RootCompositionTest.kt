@@ -120,6 +120,10 @@ class RootCompositionTest {
 
         assertEquals(2, snapshot.recompositionCount)
         assertEquals(1, snapshot.invalidationCount)
+        assertTrue(snapshot.lastCompositionDurationNanos >= 0)
+        assertTrue(snapshot.baselineCompositionDurationNanos >= 0)
+        assertEquals(2, snapshot.rebuiltNodeCount)
+        assertEquals(2, snapshot.totalNodeCount)
         assertEquals(
             """
             Column(spacing=0)
@@ -137,6 +141,25 @@ class RootCompositionTest {
         assertTrue(snapshot.dirtyGroupDump.contains("0"))
         assertTrue(snapshot.events.any { it.startsWith("invalidate #1") })
         assertTrue(snapshot.events.any { it == "recompose #2" })
+    }
+
+    @Test
+    fun `debug snapshot reports the share of UI nodes rebuilt in the latest pass`() {
+        val count = mutableStateOf(0)
+        val composition = RootComposition {
+            column {
+                text("Stable")
+                text("Count: ${count.value}")
+            }
+        }
+
+        composition.recompose()
+        count.value = 1
+        composition.recompose()
+
+        val snapshot = composition.debugSnapshot()
+        assertEquals(2, snapshot.rebuiltNodeCount)
+        assertEquals(3, snapshot.totalNodeCount)
     }
 
     @Test

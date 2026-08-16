@@ -24,6 +24,8 @@ class CompositionHostPanelTest {
         val debugText = debugScroll.viewport.view as javax.swing.JTextArea
 
         assertTrue(debugSummary.text.contains("recompositions=1"))
+        assertTrue(debugSummary.text.contains("cost:"))
+        assertTrue(debugSummary.text.contains("new UI nodes="))
         assertTrue(debugText.text.contains("Column(spacing=0)"))
         assertTrue(debugText.text.contains("Tree"))
         assertTrue(debugText.text.contains("Groups"))

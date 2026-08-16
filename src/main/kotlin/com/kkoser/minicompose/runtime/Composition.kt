@@ -1,6 +1,8 @@
 package com.kkoser.minicompose.runtime
 
 import com.kkoser.minicompose.ui.UiNode
+import com.kkoser.minicompose.ui.UiColumn
+import com.kkoser.minicompose.ui.UiRow
 import com.kkoser.minicompose.ui.dumpTree
 import java.util.IdentityHashMap
 
@@ -68,6 +70,10 @@ class RootComposition(
     private val debugEvents = mutableListOf<String>()
     private var recompositionCount = 0
     private var invalidationCount = 0
+    private var lastCompositionDurationNanos = 0L
+    private var baselineCompositionDurationNanos = 0L
+    private var rebuiltNodeCount = 0
+    private var totalNodeCount = 0
     private var nextStateDebugId = 1
     private var lastTreeDump = ""
     private var lastDirtyGroupDump = ""
@@ -83,6 +89,8 @@ class RootComposition(
     }
 
     fun recompose(): UiNode {
+        val previousTree = latestTree
+        val startedAt = System.nanoTime()
         beginPass()
         val tree = CompositionRuntime.withCurrentComposition(this) {
             CompositionRuntime.withCurrentGroup(slotTable.rootAnchor) {
@@ -90,6 +98,13 @@ class RootComposition(
                 compose(this, content)
             }
         }
+        lastCompositionDurationNanos = System.nanoTime() - startedAt
+        if (baselineCompositionDurationNanos == 0L) {
+            baselineCompositionDurationNanos = lastCompositionDurationNanos
+        }
+        val previousNodes = previousTree?.identityNodeSet().orEmpty()
+        totalNodeCount = tree.nodeCount()
+        rebuiltNodeCount = tree.countNodesNotIn(previousNodes)
         latestTree = tree
         recompositionCount += 1
         lastTreeDump = tree.dumpTree()
@@ -105,6 +120,10 @@ class RootComposition(
         return CompositionDebugSnapshot(
             recompositionCount = recompositionCount,
             invalidationCount = invalidationCount,
+            lastCompositionDurationNanos = lastCompositionDurationNanos,
+            baselineCompositionDurationNanos = baselineCompositionDurationNanos,
+            rebuiltNodeCount = rebuiltNodeCount,
+            totalNodeCount = totalNodeCount,
             lastTreeDump = lastTreeDump,
             groupDump = buildGroupDump(),
             dependencyDump = buildDependencyDump(),
@@ -480,5 +499,34 @@ class RootComposition(
 
     private fun stateLabel(state: MutableState<*>): String {
         return "state#${stateDebugIds.getOrPut(state) { nextStateDebugId++ }}"
+    }
+
+    private fun UiNode.identityNodeSet(): Set<UiNode> {
+        val nodes = java.util.Collections.newSetFromMap(IdentityHashMap<UiNode, Boolean>())
+        visitNodes { nodes.add(it) }
+        return nodes
+    }
+
+    private fun UiNode.nodeCount(): Int {
+        var count = 0
+        visitNodes { count += 1 }
+        return count
+    }
+
+    private fun UiNode.countNodesNotIn(previousNodes: Set<UiNode>): Int {
+        var count = 0
+        visitNodes { node ->
+            if (node !in previousNodes) count += 1
+        }
+        return count
+    }
+
+    private fun UiNode.visitNodes(visitor: (UiNode) -> Unit) {
+        visitor(this)
+        when (this) {
+            is UiColumn -> children.forEach { it.visitNodes(visitor) }
+            is UiRow -> children.forEach { it.visitNodes(visitor) }
+            else -> Unit
+        }
     }
 }
